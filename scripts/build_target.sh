@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Reproducible PY07 target builder for darwin-arm64 and linux-amd64.
+# Common ABI, metering, WABT translation, C compilation, producer tests, and
+# packaging live here; platform-specific link/sign/symbol-audit steps live in
+# scripts/targets/<platform>.sh.
 # Usage: scripts/build_target.sh <python.wasm> <stdlib_dir> <cache_dir> <work_dir> <out_dir> <source_commit>
 set -euo pipefail
 
@@ -18,27 +21,38 @@ WABT_SHA256="a76cda3c174a43097863a07fc0b0c202f770f53e21806ea2636f167d1ffb1e30"
 CPYTHON_WASM_SHA256="5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8"
 METERED_WASM_SHA256="774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6"
 
-OS="$(uname -s)"
-ARCH="$(uname -m)"
-if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
-  PLATFORM="darwin-arm64"
-  LIB_NAME="libpw_cpython_wasi.dylib"
-  SHA256_CMD="shasum -a 256"
-  JOBS="$(sysctl -n hw.ncpu)"
-elif [[ "$OS" == "Linux" && "$ARCH" == "x86_64" ]]; then
-  PLATFORM="linux-amd64"
-  LIB_NAME="libpw_cpython_wasi.so"
-  SHA256_CMD="sha256sum"
-  JOBS="$(nproc)"
-else
-  echo "Unsupported platform: $OS/$ARCH" >&2
+resolve_target_platform() {
+  if [[ -n "${PW_TARGET_PLATFORM:-}" ]]; then
+    echo "$PW_TARGET_PLATFORM"
+    return 0
+  fi
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "$os/$arch" in
+    Darwin/arm64) echo "darwin-arm64" ;;
+    Linux/x86_64) echo "linux-amd64" ;;
+    *)
+      echo "Unsupported platform: $os/$arch" >&2
+      return 1
+      ;;
+  esac
+}
+
+TARGET_PLATFORM="$(resolve_target_platform)"
+TARGET_ADAPTER="$REPO_ROOT/scripts/targets/${TARGET_PLATFORM}.sh"
+if [[ ! -f "$TARGET_ADAPTER" ]]; then
+  echo "ERROR: No target adapter found for platform '$TARGET_PLATFORM' ($TARGET_ADAPTER)" >&2
   exit 1
 fi
+# shellcheck source=/dev/null
+source "$TARGET_ADAPTER"
+JOBS="$(target_jobs)"
 
 mkdir -p "$CACHE_DIR" "$WORK_DIR" "$OUT_DIR"
 
 # 1. Verify pinned python.wasm
-GOT_WASM_SHA="$($SHA256_CMD "$PYTHON_WASM" | awk '{print $1}')"
+GOT_WASM_SHA="$(target_sha256 "$PYTHON_WASM" | awk '{print $1}')"
 if [[ "$GOT_WASM_SHA" != "$CPYTHON_WASM_SHA256" ]]; then
   echo "ERROR: python.wasm sha256 mismatch: got $GOT_WASM_SHA want $CPYTHON_WASM_SHA256" >&2
   exit 1
@@ -56,7 +70,7 @@ if [[ ! -f "$WABT_TAR" ]]; then
   curl -fsSL -o "$WABT_TAR.tmp" "$WABT_URL"
   mv "$WABT_TAR.tmp" "$WABT_TAR"
 fi
-GOT_WABT_SHA="$($SHA256_CMD "$WABT_TAR" | awk '{print $1}')"
+GOT_WABT_SHA="$(target_sha256 "$WABT_TAR" | awk '{print $1}')"
 if [[ "$GOT_WABT_SHA" != "$WABT_SHA256" ]]; then
   echo "ERROR: wabt-$WABT_VERSION.tar.xz sha256 mismatch: got $GOT_WABT_SHA want $WABT_SHA256" >&2
   exit 1
@@ -126,38 +140,12 @@ cc "${COMMON_CFLAGS[@]}" \
   -c "$GEN_DIR/pw_py_bridge.c" -o "$OBJ_DIR/pw_py_bridge.o"
 
 LIB_PATH="$WORK_DIR/$LIB_NAME"
-if [[ "$PLATFORM" == "darwin-arm64" ]]; then
-  cc -dynamiclib -o "$LIB_PATH" "$OBJ_DIR"/*.o \
-    -Wl,-install_name,@rpath/"$LIB_NAME" \
-    -Wl,-exported_symbols_list,"$REPO_ROOT/exports/darwin.exp" \
-    -lm -lpthread
-  codesign --force --sign - --options runtime --timestamp=none "$LIB_PATH"
-  codesign --verify --verbose=2 "$LIB_PATH"
-  echo "--- codesign entitlements check ---"
-  codesign -d --entitlements - "$LIB_PATH" 2>&1 || true
-else
-  cc -shared -o "$LIB_PATH" "$OBJ_DIR"/*.o \
-    -Wl,-soname,"$LIB_NAME" \
-    -Wl,--version-script="$REPO_ROOT/exports/linux.map" \
-    -lm -lpthread
-fi
+target_link_and_sign "$REPO_ROOT" "$OBJ_DIR" "$LIB_PATH"
 echo "[5/7] Built $LIB_PATH ($(wc -c < "$LIB_PATH") bytes)"
 
 # 6. Audit exported symbols (must be ONLY the 7 pw_py_* entry points)
 echo "[6/7] Auditing exported symbols:"
-if [[ "$PLATFORM" == "darwin-arm64" ]]; then
-  EXPORTED="$(nm -gU "$LIB_PATH" | awk '{print $3}' | sort)"
-  echo "$EXPORTED"
-  NON_PW="$(echo "$EXPORTED" | grep -v '^_pw_py_' || true)"
-else
-  EXPORTED="$(nm -D --defined-only "$LIB_PATH" | awk '$2 ~ /^[TDRB]$/ {print $3}' | sort)"
-  echo "$EXPORTED"
-  NON_PW="$(echo "$EXPORTED" | grep -v '^pw_py_' || true)"
-fi
-if [[ -n "$NON_PW" ]]; then
-  echo "ERROR: Unexpected exported symbols found: $NON_PW" >&2
-  exit 1
-fi
+target_audit_symbols "$LIB_PATH"
 
 # 7. Run independent C producer test suite via dlopen()
 cc -O2 -Wall -Wextra -I"$REPO_ROOT/include" "$REPO_ROOT/tests/test_engine.c" -o "$WORK_DIR/test_engine" -ldl -lpthread
@@ -173,9 +161,9 @@ cp "$REPO_ROOT/imports.json" "$STAGE/imports.json"
 cp "$REPO_ROOT/LICENSES/"* "$STAGE/LICENSES/"
 cp "$WABT_SRC/LICENSE" "$STAGE/LICENSES/WABT-UPSTREAM-LICENSE.txt"
 
-LIB_SHA="$($SHA256_CMD "$STAGE/$LIB_NAME" | awk '{print $1}')"
-HDR_SHA="$($SHA256_CMD "$STAGE/include/pw_py_engine.h" | awk '{print $1}')"
-INV_SHA="$($SHA256_CMD "$STAGE/imports.json" | awk '{print $1}')"
+LIB_SHA="$(target_sha256 "$STAGE/$LIB_NAME" | awk '{print $1}')"
+HDR_SHA="$(target_sha256 "$STAGE/include/pw_py_engine.h" | awk '{print $1}')"
+INV_SHA="$(target_sha256 "$STAGE/imports.json" | awk '{print $1}')"
 CC_VER="$(cc --version | head -n1 | tr '"' "'")"
 
 cat > "$STAGE/artifact-manifest.json" <<EOF
@@ -198,16 +186,16 @@ cat > "$STAGE/artifact-manifest.json" <<EOF
   "import_inventory_sha256": "$INV_SHA",
   "toolchain": "$CC_VER",
   "compile_flags": ["-O1", "-g0", "-fPIC", "-fvisibility=hidden", "-DWASM_RT_MEMCHECK_BOUNDS_CHECK=1", "-DWASM_RT_STACK_DEPTH_COUNT=1", "-DWASM_RT_USE_SEGUE=0"],
-  "codesign_hardened": $( [[ "$PLATFORM" == "darwin-arm64" ]] && echo "true" || echo "false" ),
+  "codesign_hardened": $CODESIGN_HARDENED,
   "jit_entitlements": []
 }
 EOF
 
-(cd "$STAGE" && $SHA256_CMD "$LIB_NAME" include/pw_py_engine.h imports.json artifact-manifest.json LICENSES/* > SHA256SUMS)
+(cd "$STAGE" && target_sha256 "$LIB_NAME" include/pw_py_engine.h imports.json artifact-manifest.json LICENSES/* > SHA256SUMS)
 
 ARCHIVE_NAME="$ENGINE_TAG-$PLATFORM.tar.gz"
 tar -czf "$OUT_DIR/$ARCHIVE_NAME" -C "$STAGE" .
 cp "$STAGE/artifact-manifest.json" "$OUT_DIR/artifact-manifest-$PLATFORM.json"
-(cd "$OUT_DIR" && $SHA256_CMD "$ARCHIVE_NAME" "artifact-manifest-$PLATFORM.json" > "SHA256SUMS-$PLATFORM")
+(cd "$OUT_DIR" && target_sha256 "$ARCHIVE_NAME" "artifact-manifest-$PLATFORM.json" > "SHA256SUMS-$PLATFORM")
 echo "[7/7] Packaged $OUT_DIR/$ARCHIVE_NAME"
 cat "$OUT_DIR/SHA256SUMS-$PLATFORM"
