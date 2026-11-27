@@ -809,7 +809,8 @@ int main(int argc, char** argv) {
                 "  pass\n"
                 "print('REGEX_FULL_OK')\n";
             init_host(&host, regex_full);
-            CHECK(g_new(&cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "regex full new");
+            pw_py_instance_config_t full_cfg = { sizeof(full_cfg), 4096, 5000000000ULL };
+            CHECK(g_new(&full_cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "regex full new");
             host.inst = inst;
             CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "regex full run OK");
             CHECK(strcmp(host.stdout_buf, "REGEX_FULL_OK\n") == 0, "regex full stdout == REGEX_FULL_OK");
