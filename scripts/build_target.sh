@@ -82,12 +82,10 @@ GEN_DIR="$WORK_DIR/gen"
 rm -rf "$GEN_DIR"
 mkdir -p "$GEN_DIR"
 "$WABT_BIN" --num-outputs=12 -n pw "$WORK_DIR/metered.wasm" -o "$GEN_DIR/guest.c"
-cp "$WABT_SRC/wasm2c/wasm-rt.h" \
-   "$WABT_SRC/wasm2c/wasm-rt-exceptions.h" \
-   "$WABT_SRC/wasm2c/wasm-rt-impl.h" \
+cp "$WABT_SRC"/wasm2c/*.h \
+   "$WABT_SRC"/wasm2c/*.inc \
    "$WABT_SRC/wasm2c/wasm-rt-impl.c" \
    "$WABT_SRC/wasm2c/wasm-rt-mem-impl.c" \
-   "$WABT_SRC/wasm2c/wasm-rt-mem-impl-helper.inc" \
    "$GEN_DIR/"
 cp "$REPO_ROOT/include/pw_py_engine.h" "$GEN_DIR/"
 
