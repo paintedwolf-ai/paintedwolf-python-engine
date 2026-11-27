@@ -486,8 +486,8 @@ int main(int argc, char** argv) {
     CHECK(id != NULL, "identity non-null");
     CHECK(id->abi_version == PW_PY_ENGINE_ABI_VERSION, "abi_version == 1");
     CHECK(id->import_count == PW_PY_ENGINE_IMPORT_COUNT, "import_count == 43");
-    CHECK(strcmp(id->cpython_wasm_sha256, "dbd949fbb473d96277cc3fff67fae32b14d713830b339b1687bc9180cbc3c88c") == 0, "cpython_wasm_sha256");
-    CHECK(strcmp(id->metered_wasm_sha256, "3e54c6e508679f660356422f4640f971c9ecf1acc7a3e1754547c6be2153c91a") == 0, "metered_wasm_sha256");
+    CHECK(strcmp(id->cpython_wasm_sha256, "bea5b8f2cb633212d4be85a668ad13246dc0c1b65c29796cf5d990ec1956b052") == 0, "cpython_wasm_sha256");
+    CHECK(strcmp(id->metered_wasm_sha256, "92755437dfb30aa41a5868f06d585dac55990474e07ebca53d9e5b1f009758f4") == 0, "metered_wasm_sha256");
     CHECK(strcmp(id->wabt_version, "1.0.42") == 0, "wabt_version == 1.0.42");
     printf("[PASS] 1. identity handshake (tag=%s platform=%s commit=%s)\n", id->engine_tag, id->platform, id->source_commit);
 
@@ -646,9 +646,15 @@ int main(int argc, char** argv) {
             "assert conn.execute('SELECT v FROM t').fetchone() == (7,)\n"
             "pil_pkg = types.ModuleType('PIL'); pil_pkg.__path__ = []; sys.modules['PIL'] = pil_pkg\n"
             "import PIL._imaging as core\n"
-            "im = core.new('RGB', (16, 16))\n"
+            "im = core.new('RGBA', (16, 16))\n"
             "assert im.size == (16, 16)\n"
             "assert hasattr(core, 'jpeg_encoder') and hasattr(core, 'zip_encoder')\n"
+            "bands = im.split()\n"
+            "assert len(bands) == 4\n"
+            "assert bands[3].getextrema() == (0, 0)\n"
+            "assert len(bands[3].getprojection()) == 2\n"
+            "assert isinstance(im.isblock(), int)\n"
+            "assert im.chop_invert().size == (16, 16)\n"
             "lxml_pkg = types.ModuleType('lxml'); lxml_pkg.__path__ = []; sys.modules['lxml'] = lxml_pkg\n"
             "import lxml.etree as etree\n"
             "doc = etree.fromstring(b'<r xmlns:n=\"urn:t\"><n:k>ok</n:k></r>')\n"

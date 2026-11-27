@@ -193,6 +193,33 @@ wait
 "$RANLIB" "$SYSROOT/lib/libpw_lxml.a"
 
 # Build Pillow 11.1.0 _imaging static archive
+# Patch Pillow's 7 1-arg METH_NOARGS functions to 2-arg PyCFunction for Wasm call_indirect type safety
+python3 - "$PIL_SRC" <<'PYEOF'
+import os, sys
+pil_src = sys.argv[1]
+patches = {
+    "src/_imaging.c": [
+        ("_isblock(ImagingObject *self)", "_isblock(ImagingObject *self, PyObject *Py_UNUSED(ignored))"),
+        ("_getextrema(ImagingObject *self)", "_getextrema(ImagingObject *self, PyObject *Py_UNUSED(ignored))"),
+        ("_getprojection(ImagingObject *self)", "_getprojection(ImagingObject *self, PyObject *Py_UNUSED(ignored))"),
+        ("_split(ImagingObject *self)", "_split(ImagingObject *self, PyObject *Py_UNUSED(ignored))"),
+        ("_getpalettemode(ImagingObject *self)", "_getpalettemode(ImagingObject *self, PyObject *Py_UNUSED(ignored))"),
+        ("_chop_invert(ImagingObject *self)", "_chop_invert(ImagingObject *self, PyObject *Py_UNUSED(ignored))"),
+    ],
+    "src/encode.c": [
+        ("_encode_to_pyfd(ImagingEncoderObject *encoder)", "_encode_to_pyfd(ImagingEncoderObject *encoder, PyObject *Py_UNUSED(ignored))"),
+    ],
+}
+for rel, reps in patches.items():
+    p = os.path.join(pil_src, rel)
+    s = open(p).read()
+    for old, new in reps:
+        if new not in s:
+            assert old in s, f"Pattern not found in {rel}: {old}"
+            s = s.replace(old, new, 1)
+    open(p, "w").write(s)
+PYEOF
+
 PIL_OBJ="$WORK_DIR/obj-pillow"
 rm -rf "$PIL_OBJ" && mkdir -p "$PIL_OBJ"
 python3 - "$CLANG" "$WASI_SYSROOT" "$SYSROOT" "$PY_BUILD" "$PY_SRC" "$PIL_SRC" "$PIL_OBJ" "$JOBS" <<'PYEOF'
@@ -207,6 +234,7 @@ base = [
     "-D_WASI_EMULATED_SIGNAL", "-D_WASI_EMULATED_PROCESS_CLOCKS",
     f"-I{sysroot}/include", f"-I{py_build}", f"-I{py_src}/Include", f"-I{py_src}/Include/internal",
     f"-I{pil_src}/src/libImaging", "-DHAVE_LIBZ=1", "-DHAVE_LIBJPEG=1", '-DPILLOW_VERSION="11.1.0"',
+    "-Werror=cast-function-type", "-Wno-cast-function-type-strict",
 ]
 def one(rel):
     out = os.path.join(pil_obj, rel.replace("/", "__").replace(".", "_") + ".o")
