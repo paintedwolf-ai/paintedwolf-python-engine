@@ -101,6 +101,7 @@ def main() -> None:
 
 #include <limits.h>
 #include <pthread.h>
+#include <sched.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -337,6 +338,16 @@ PW_PY_API void pw_py_instance_cancel(pw_py_instance_t* inst) {{
     return;
   }}
   atomic_store_explicit(&inst->canceled, 1, memory_order_release);
+  /* Guard against an in-flight guest load-sub-store clobbering -1. */
+  for (int attempt = 0; attempt < 64 && atomic_load_explicit(&inst->running, memory_order_acquire); attempt++) {{
+    for (int i = 0; i < 256; i++) {{
+      inst->guest.w2c_0x5F_pw_fuel = (uint64_t)(-1LL);
+    }}
+    if (!atomic_load_explicit(&inst->running, memory_order_acquire)) {{
+      break;
+    }}
+    sched_yield();
+  }}
   inst->guest.w2c_0x5F_pw_fuel = (uint64_t)(-1LL);
 }}
 

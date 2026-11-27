@@ -61,6 +61,7 @@ typedef struct {
     int fds[MAX_WASI_FDS]; /* host OS fd, -1 if unused; fd 3 = /usr/local/lib */
     char stdout_buf[8192];
     size_t stdout_len;
+    _Atomic int ready_seen;
     char stderr_buf[8192];
     size_t stderr_len;
 } test_host_t;
@@ -277,6 +278,9 @@ static pw_py_wasi_action_t test_wasi_cb(
                     memcpy(h->stdout_buf + h->stdout_len, mem + base, cp);
                     h->stdout_len += cp;
                     h->stdout_buf[h->stdout_len] = '\0';
+                    if (strstr(h->stdout_buf, "LOOP_READY") != NULL) {
+                        atomic_store_explicit(&h->ready_seen, 1, memory_order_release);
+                    }
                 } else if (fd == 2) {
                     size_t avail = sizeof(h->stderr_buf) - 1 - h->stderr_len;
                     size_t cp = len < avail ? len : avail;
@@ -383,26 +387,28 @@ typedef struct {
     pw_py_run_result_t res;
     char stdout_copy[256];
     _Atomic int started;
+    test_host_t host;
 } worker_arg_t;
 
 static void* worker_thread(void* arg) {
     worker_arg_t* w = (worker_arg_t*)arg;
-    test_host_t host;
-    init_host(&host, w->code);
+    init_host(&w->host, w->code);
     pw_py_instance_config_t cfg = { sizeof(cfg), w->max_pages, w->fuel };
-    pw_py_status_t st = g_new(&cfg, test_wasi_cb, &host, &w->inst);
+    pw_py_status_t st = g_new(&cfg, test_wasi_cb, &w->host, &w->inst);
     if (st != PW_PY_STATUS_OK) {
         w->res.status = st;
-        close_host(&host);
+        close_host(&w->host);
         return NULL;
     }
-    host.inst = w->inst;
+    w->host.inst = w->inst;
     atomic_store_explicit(&w->started, 1, memory_order_release);
     g_run(w->inst, &w->res);
-    strncpy(w->stdout_copy, host.stdout_buf, sizeof(w->stdout_copy) - 1);
+    size_t cp = w->host.stdout_len < sizeof(w->stdout_copy) - 1 ? w->host.stdout_len : sizeof(w->stdout_copy) - 1;
+    memcpy(w->stdout_copy, w->host.stdout_buf, cp);
+    w->stdout_copy[cp] = '\0';
     g_free(w->inst);
     w->inst = NULL;
-    close_host(&host);
+    close_host(&w->host);
     return NULL;
 }
 
@@ -511,16 +517,16 @@ int main(int argc, char** argv) {
     /* 6. Asynchronous cross-thread cancellation inside CPU-only loop with huge fuel */
     {
         worker_arg_t w = {0};
-        w.code = "while True: pass";
+        w.code = "print('LOOP_READY', flush=True)\nwhile True: pass\n";
         w.max_pages = 4096;
         w.fuel = 100000000000ULL;
         pthread_t tid;
         CHECK(pthread_create(&tid, NULL, worker_thread, &w) == 0, "spawn cancel thread");
-        while (!atomic_load_explicit(&w.started, memory_order_acquire)) {
+        while (!atomic_load_explicit(&w.host.ready_seen, memory_order_acquire)) {
             struct timespec ts = {0, 1000000};
             nanosleep(&ts, NULL);
         }
-        struct timespec wait_ts = {0, 40000000}; /* 40ms into CPU loop */
+        struct timespec wait_ts = {0, 20000000}; /* 20ms inside pure CPU loop */
         nanosleep(&wait_ts, NULL);
         double t0 = now_ms();
         g_cancel(w.inst);
@@ -559,7 +565,7 @@ int main(int argc, char** argv) {
         workers[0] = (worker_arg_t){ .id = 0, .code = "print(sum(range(5000)))", .max_pages = 4096, .fuel = 50000000ULL };
         workers[1] = (worker_arg_t){ .id = 1, .code = "print('ok-' + str(6*7))", .max_pages = 4096, .fuel = 50000000ULL };
         workers[2] = (worker_arg_t){ .id = 2, .code = "while True: pass", .max_pages = 4096, .fuel = 1500000ULL };
-        workers[3] = (worker_arg_t){ .id = 3, .code = "while True: pass", .max_pages = 4096, .fuel = 100000000000ULL };
+        workers[3] = (worker_arg_t){ .id = 3, .code = "print('LOOP_READY', flush=True)\nwhile True: pass\n", .max_pages = 4096, .fuel = 100000000000ULL };
         workers[4] = (worker_arg_t){ .id = 4, .code = "import sys; sys.exit(42)", .max_pages = 4096, .fuel = 50000000ULL };
         workers[5] = (worker_arg_t){ .id = 5, .code = "try:\n  bytearray(32*1024*1024)\nexcept MemoryError:\n  print('OOM_CONC')\n", .max_pages = 300, .fuel = 50000000ULL };
 
@@ -567,11 +573,11 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 6; i++) {
             CHECK(pthread_create(&tids[i], NULL, worker_thread, &workers[i]) == 0, "spawn concurrent worker");
         }
-        while (!atomic_load_explicit(&workers[3].started, memory_order_acquire)) {
+        while (!atomic_load_explicit(&workers[3].host.ready_seen, memory_order_acquire)) {
             struct timespec ts = {0, 1000000};
             nanosleep(&ts, NULL);
         }
-        struct timespec wait_ts = {0, 40000000};
+        struct timespec wait_ts = {0, 20000000};
         nanosleep(&wait_ts, NULL);
         g_cancel(workers[3].inst);
 
