@@ -559,27 +559,32 @@ int main(int argc, char** argv) {
     }
     printf("[PASS] 5. exact fuel exhaustion (budget=2000000 used=2000001)\n");
 
-    /* 6. Asynchronous cross-thread cancellation inside CPU-only loop with huge fuel */
+    /* 6. Asynchronous cross-thread cancellation stress inside CPU-only loop (10 rounds) */
     {
-        worker_arg_t w = {0};
-        w.code = "print('LOOP_READY', flush=True)\nwhile True: pass\n";
-        w.max_pages = 4096;
-        w.fuel = 100000000000ULL;
-        pthread_t tid;
-        CHECK(pthread_create(&tid, NULL, worker_thread, &w) == 0, "spawn cancel thread");
-        while (!atomic_load_explicit(&w.host.ready_seen, memory_order_acquire)) {
-            struct timespec ts = {0, 1000000};
-            nanosleep(&ts, NULL);
+        double max_dt = 0.0;
+        for (int round = 0; round < 10; round++) {
+            worker_arg_t w = {0};
+            w.code = "print('LOOP_READY', flush=True)\nwhile True: pass\n";
+            w.max_pages = 4096;
+            w.fuel = 100000000000ULL;
+            pthread_t tid;
+            CHECK(pthread_create(&tid, NULL, worker_thread, &w) == 0, "spawn cancel thread");
+            while (!atomic_load_explicit(&w.host.ready_seen, memory_order_acquire)) {
+                struct timespec ts = {0, 1000000};
+                nanosleep(&ts, NULL);
+            }
+            struct timespec wait_ts = {0, 5000000}; /* 5ms inside pure CPU loop */
+            nanosleep(&wait_ts, NULL);
+            double t0 = now_ms();
+            g_cancel(w.inst);
+            pthread_join(tid, NULL);
+            double dt = now_ms() - t0;
+            CHECK(w.res.status == PW_PY_STATUS_CANCELED, "async cancel status == CANCELED");
+            CHECK(w.res.fuel_remaining > 0, "async cancel preserves positive thread-owned fuel");
+            CHECK(dt < 100.0, "async cancel latency < 100ms");
+            if (dt > max_dt) max_dt = dt;
         }
-        struct timespec wait_ts = {0, 20000000}; /* 20ms inside pure CPU loop */
-        nanosleep(&wait_ts, NULL);
-        double t0 = now_ms();
-        g_cancel(w.inst);
-        pthread_join(tid, NULL);
-        double dt = now_ms() - t0;
-        CHECK(w.res.status == PW_PY_STATUS_CANCELED, "async cancel status");
-        CHECK(dt < 100.0, "async cancel latency < 100ms");
-        printf("[PASS] 6. async cross-thread CPU-loop cancel (latency=%.2fms)\n", dt);
+        printf("[PASS] 6. async cross-thread CPU-loop cancel stress (10/10 rounds, max_latency=%.2fms)\n", max_dt);
     }
 
     /* 7. Memory ceiling enforcement */
@@ -677,7 +682,84 @@ int main(int argc, char** argv) {
     }
     printf("[PASS] 9. built-in extensions smoke (PIL._imaging JPEG+PNG, lxml.etree XPath+XXE, sqlite3)\n");
 
+    /* 10. Compiled native-extension concurrent cancel (Pillow & lxml) + fuel calibration */
+    {
+        const char* pil_loop_code =
+            "import sys, types\n"
+            "p = types.ModuleType('PIL'); p.__path__ = []; sys.modules['PIL'] = p\n"
+            "import PIL._imaging as core\n"
+            "im = core.new('RGBA', (512, 512))\n"
+            "print('LOOP_READY', flush=True)\n"
+            "while True:\n"
+            "  im = im.resize((512, 512), 1)\n"
+            "  im = im.chop_invert()\n";
+
+        /* 10a. Concurrent cancel inside compiled Pillow C extension loop */
+        worker_arg_t wp = {0};
+        wp.code = pil_loop_code;
+        wp.max_pages = 4096;
+        wp.fuel = 100000000000ULL;
+        pthread_t tid;
+        CHECK(pthread_create(&tid, NULL, worker_thread, &wp) == 0, "spawn pillow cancel thread");
+        while (!atomic_load_explicit(&wp.host.ready_seen, memory_order_acquire)) {
+            struct timespec ts = {0, 1000000};
+            nanosleep(&ts, NULL);
+        }
+        struct timespec wait_ts = {0, 10000000}; /* 10ms inside compiled C extension loop */
+        nanosleep(&wait_ts, NULL);
+        double t0 = now_ms();
+        g_cancel(wp.inst);
+        pthread_join(tid, NULL);
+        double dt_pil = now_ms() - t0;
+        CHECK(wp.res.status == PW_PY_STATUS_CANCELED, "pillow native-ext cancel status == CANCELED");
+        CHECK(wp.res.fuel_remaining > 0, "pillow cancel preserves positive thread-owned fuel");
+        CHECK(dt_pil < 100.0, "pillow native-ext cancel latency < 100ms");
+
+        /* 10b. Fuel exhaustion calibration inside compiled Pillow C extension loop (no cancel) */
+        test_host_t host;
+        init_host(&host, pil_loop_code);
+        pw_py_instance_config_t fcfg = { sizeof(fcfg), 4096, 5000000ULL };
+        pw_py_instance_t* finst = NULL;
+        CHECK(g_new(&fcfg, test_wasi_cb, &host, &finst) == PW_PY_STATUS_OK, "pillow fuel new");
+        host.inst = finst;
+        pw_py_run_result_t fres;
+        CHECK(g_run(finst, &fres) == PW_PY_STATUS_FUEL_EXHAUSTED, "pillow fuel exhausted status");
+        CHECK(fres.fuel_remaining < 0 && fres.guest_work_used == 5000001ULL, "pillow exact fuel calibration");
+        g_free(finst);
+        close_host(&host);
+
+        /* 10c. Concurrent cancel inside compiled lxml C extension loop */
+        const char* lxml_loop_code =
+            "import sys, types\n"
+            "l = types.ModuleType('lxml'); l.__path__ = []; sys.modules['lxml'] = l\n"
+            "import lxml.etree as etree\n"
+            "xml = b'<r>' + b'<item id=\"1\">payload</item>' * 200 + b'</r>'\n"
+            "print('LOOP_READY', flush=True)\n"
+            "while True:\n"
+            "  doc = etree.fromstring(xml)\n"
+            "  doc.xpath('//item[@id=\"1\"]/text()')\n";
+        worker_arg_t wl = {0};
+        wl.code = lxml_loop_code;
+        wl.max_pages = 4096;
+        wl.fuel = 100000000000ULL;
+        CHECK(pthread_create(&tid, NULL, worker_thread, &wl) == 0, "spawn lxml cancel thread");
+        while (!atomic_load_explicit(&wl.host.ready_seen, memory_order_acquire)) {
+            struct timespec ts = {0, 1000000};
+            nanosleep(&ts, NULL);
+        }
+        nanosleep(&wait_ts, NULL);
+        t0 = now_ms();
+        g_cancel(wl.inst);
+        pthread_join(tid, NULL);
+        double dt_lxml = now_ms() - t0;
+        CHECK(wl.res.status == PW_PY_STATUS_CANCELED, "lxml native-ext cancel status == CANCELED");
+        CHECK(wl.res.fuel_remaining > 0, "lxml cancel preserves positive thread-owned fuel");
+        CHECK(dt_lxml < 100.0, "lxml native-ext cancel latency < 100ms");
+
+        printf("[PASS] 10. native-extension cancel & fuel calibration (pillow=%.2fms, lxml=%.2fms, fuel=5000001)\n", dt_pil, dt_lxml);
+    }
+
     dlclose(dl);
-    printf("ALL 9 PY10 PRODUCER TESTS PASSED\n");
+    printf("ALL 10 PY10 PRODUCER TESTS PASSED\n");
     return 0;
 }
