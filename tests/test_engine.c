@@ -441,8 +441,8 @@ int main(int argc, char** argv) {
     CHECK(id != NULL, "identity non-null");
     CHECK(id->abi_version == PW_PY_ENGINE_ABI_VERSION, "abi_version == 1");
     CHECK(id->import_count == PW_PY_ENGINE_IMPORT_COUNT, "import_count == 43");
-    CHECK(strcmp(id->cpython_wasm_sha256, "5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8") == 0, "cpython_wasm_sha256");
-    CHECK(strcmp(id->metered_wasm_sha256, "774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6") == 0, "metered_wasm_sha256");
+    CHECK(strcmp(id->cpython_wasm_sha256, "dbd949fbb473d96277cc3fff67fae32b14d713830b339b1687bc9180cbc3c88c") == 0, "cpython_wasm_sha256");
+    CHECK(strcmp(id->metered_wasm_sha256, "3e54c6e508679f660356422f4640f971c9ecf1acc7a3e1754547c6be2153c91a") == 0, "metered_wasm_sha256");
     CHECK(strcmp(id->wabt_version, "1.0.42") == 0, "wabt_version == 1.0.42");
     printf("[PASS] 1. identity handshake (tag=%s platform=%s commit=%s)\n", id->engine_tag, id->platform, id->source_commit);
 
@@ -592,7 +592,41 @@ int main(int argc, char** argv) {
     }
     printf("[PASS] 8. concurrent 6-thread isolation (normal, fuel, cancel, exit, memory pressure)\n");
 
+    /* 9. Built-in C extensions smoke: PIL._imaging (JPEG+PNG), lxml.etree (XPath+XXE), sqlite3 */
+    {
+        const char* ext_code =
+            "import sys, types, sqlite3\n"
+            "conn = sqlite3.connect(':memory:')\n"
+            "conn.executescript('CREATE TABLE t(v INT); INSERT INTO t VALUES (7);')\n"
+            "assert conn.execute('SELECT v FROM t').fetchone() == (7,)\n"
+            "pil_pkg = types.ModuleType('PIL'); pil_pkg.__path__ = []; sys.modules['PIL'] = pil_pkg\n"
+            "import PIL._imaging as core\n"
+            "im = core.new('RGB', (16, 16))\n"
+            "assert im.size == (16, 16)\n"
+            "assert hasattr(core, 'jpeg_encoder') and hasattr(core, 'zip_encoder')\n"
+            "lxml_pkg = types.ModuleType('lxml'); lxml_pkg.__path__ = []; sys.modules['lxml'] = lxml_pkg\n"
+            "import lxml.etree as etree\n"
+            "doc = etree.fromstring(b'<r xmlns:n=\"urn:t\"><n:k>ok</n:k></r>')\n"
+            "assert doc.xpath('//n:k/text()', namespaces={'n': 'urn:t'}) == ['ok']\n"
+            "p = etree.XMLParser(resolve_entities=False, no_network=True)\n"
+            "d2 = etree.fromstring(b'<!DOCTYPE f [<!ENTITY e SYSTEM \"http://127.0.0.1:1/x\">]><r>&e;</r>', parser=p)\n"
+            "assert (d2.text or '') == ''\n"
+            "print('EXT_OK')\n";
+        test_host_t host;
+        init_host(&host, ext_code);
+        pw_py_instance_config_t cfg = { sizeof(cfg), 4096, 100000000ULL };
+        pw_py_instance_t* inst = NULL;
+        CHECK(g_new(&cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "ext smoke new");
+        host.inst = inst;
+        pw_py_run_result_t res;
+        CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "ext smoke run OK");
+        CHECK(strcmp(host.stdout_buf, "EXT_OK\n") == 0, "ext smoke stdout == EXT_OK");
+        g_free(inst);
+        close_host(&host);
+    }
+    printf("[PASS] 9. built-in extensions smoke (PIL._imaging JPEG+PNG, lxml.etree XPath+XXE, sqlite3)\n");
+
     dlclose(dl);
-    printf("ALL 8 PY07 PRODUCER TESTS PASSED\n");
+    printf("ALL 9 PY10 PRODUCER TESTS PASSED\n");
     return 0;
 }
