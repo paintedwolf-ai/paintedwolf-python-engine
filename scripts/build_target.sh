@@ -110,12 +110,12 @@ COMMON_CFLAGS=(
   -I"$GEN_DIR"
 )
 
-ls "$GEN_DIR"/guest_*.c "$GEN_DIR"/wasm-rt-impl.c "$GEN_DIR"/wasm-rt-mem-impl.c | \
-  xargs -P"$JOBS" -n1 sh -c '
+printf '%s\n' "$GEN_DIR"/guest_*.c "$GEN_DIR"/wasm-rt-impl.c "$GEN_DIR"/wasm-rt-mem-impl.c | \
+  xargs -P"$JOBS" -I{} sh -c '
     src="$1"; obj_dir="$2"; shift 2
     base="$(basename "$src" .c)"
     cc "$@" -c "$src" -o "$obj_dir/$base.o"
-  ' _ "$OBJ_DIR" "${COMMON_CFLAGS[@]}"
+  ' _ {} "$OBJ_DIR" "${COMMON_CFLAGS[@]}"
 
 cc "${COMMON_CFLAGS[@]}" \
   -DPW_PY_ENGINE_TAG="\"$ENGINE_TAG\"" \
