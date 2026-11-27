@@ -496,8 +496,8 @@ int main(int argc, char** argv) {
     CHECK(id != NULL, "identity non-null");
     CHECK(id->abi_version == PW_PY_ENGINE_ABI_VERSION, "abi_version == 1");
     CHECK(id->import_count == PW_PY_ENGINE_IMPORT_COUNT, "import_count == 43");
-    CHECK(strcmp(id->cpython_wasm_sha256, "6b3ae6169391f6a59a52bdac5bd3198833abf7e1d9ae1e2d38c6861c3ec6a137") == 0, "cpython_wasm_sha256");
-    CHECK(strcmp(id->metered_wasm_sha256, "d90c0b178b9e18130a4edb2880e5334daa04aa3da53080938c523e0dfaceff79") == 0, "metered_wasm_sha256");
+    CHECK(strcmp(id->cpython_wasm_sha256, "fd955c1b91ef90a070564314f9bc6c98443bc731c462191ebca2e5a1ec317c8c") == 0, "cpython_wasm_sha256");
+    CHECK(strcmp(id->metered_wasm_sha256, "22d6ad6719bd89707465bcf066b02b411d53ebe710cce056af3ec41cbaca257d") == 0, "metered_wasm_sha256");
     CHECK(strcmp(id->wabt_version, "1.0.42") == 0, "wabt_version == 1.0.42");
     printf("[PASS] 1. identity handshake (tag=%s platform=%s commit=%s)\n", id->engine_tag, id->platform, id->source_commit);
 
@@ -885,7 +885,93 @@ int main(int argc, char** argv) {
         }
     }
 
+    /* 12. Built-in regex 2024.11.6 extension smoke + full grapheme/script/overlap/timeout/cancel/fuel */
+    {
+        const char* regex_smoke =
+            "import sys, types\n"
+            "rpkg = types.ModuleType('regex'); rpkg.__path__ = []; sys.modules['regex'] = rpkg\n"
+            "import regex._regex as _regex\n"
+            "assert hasattr(_regex, 'compile') and hasattr(_regex, 'get_code_size')\n"
+            "assert _regex.get_code_size() > 0\n"
+            "print('REGEX_C_OK')\n";
+        test_host_t host;
+        init_host(&host, regex_smoke);
+        pw_py_instance_config_t cfg = { sizeof(cfg), 4096, 50000000ULL };
+        pw_py_instance_t* inst = NULL;
+        CHECK(g_new(&cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "regex smoke new");
+        host.inst = inst;
+        pw_py_run_result_t res;
+        CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "regex smoke run OK");
+        CHECK(strcmp(host.stdout_buf, "REGEX_C_OK\n") == 0, "regex smoke stdout == REGEX_C_OK");
+        g_free(inst);
+        close_host(&host);
+
+        if (g_packages_dir != NULL && g_packages_dir[0] != '\0') {
+            const char* regex_full =
+                "import sys; sys.path.insert(0, '/packages')\n"
+                "import regex\n"
+                "assert regex.findall(r'\\X', 'e\\u0301\\U0001f469\\u200d\\U0001f52c!') == ['e\\u0301', '\\U0001f469\\u200d\\U0001f52c', '!']\n"
+                "assert regex.findall(r'\\p{Script=Greek}+', 'a \\u03b1\\u03b2 1 \\u03a9') == ['\\u03b1\\u03b2', '\\u03a9']\n"
+                "assert [(m.group(0), m.span()) for m in regex.finditer(r'aba', 'ababa', overlapped=True)] == [('aba', (0, 3)), ('aba', (2, 5))]\n"
+                "pat = regex.compile(r'(?P<w>[a-z]+)+')\n"
+                "assert pat.groupindex == {'w': 1}\n"
+                "m = pat.match('abc')\n"
+                "assert m.allspans() == ([(0, 3)], [(0, 3)]) and m.allcaptures() == (['abc'], ['abc']) and m.capturesdict() == {'w': ['abc']}\n"
+                "try:\n"
+                "  regex.match(r'^(a|aa)+$', 'a'*40 + '!', timeout=0.02)\n"
+                "  raise AssertionError('expected TimeoutError')\n"
+                "except TimeoutError:\n"
+                "  pass\n"
+                "print('REGEX_FULL_OK')\n";
+            init_host(&host, regex_full);
+            pw_py_instance_config_t full_cfg = { sizeof(full_cfg), 4096, 5000000000ULL };
+            CHECK(g_new(&full_cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "regex full new");
+            host.inst = inst;
+            CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "regex full run OK");
+            CHECK(strcmp(host.stdout_buf, "REGEX_FULL_OK\n") == 0, "regex full stdout == REGEX_FULL_OK");
+            g_free(inst);
+            close_host(&host);
+
+            const char* regex_bt =
+                "import sys; sys.path.insert(0, '/packages')\n"
+                "import regex\n"
+                "print('LOOP_READY', flush=True)\n"
+                "regex.match(r'^(a|aa)+$', 'a'*60 + '!')\n";
+            worker_arg_t wr = {0};
+            wr.code = regex_bt;
+            wr.max_pages = 4096;
+            wr.fuel = 100000000000ULL;
+            pthread_t tid;
+            CHECK(pthread_create(&tid, NULL, worker_thread, &wr) == 0, "spawn regex cancel thread");
+            while (!atomic_load_explicit(&wr.host.ready_seen, memory_order_acquire)) {
+                struct timespec ts = {0, 1000000};
+                nanosleep(&ts, NULL);
+            }
+            struct timespec wait_ts = {0, 10000000};
+            nanosleep(&wait_ts, NULL);
+            double t0 = now_ms();
+            g_cancel(wr.inst);
+            pthread_join(tid, NULL);
+            double dt_re = now_ms() - t0;
+            CHECK(wr.res.status == PW_PY_STATUS_CANCELED, "regex native cancel status == CANCELED");
+            CHECK(wr.res.fuel_remaining > 0, "regex cancel preserves positive thread-owned fuel");
+            CHECK(dt_re < 100.0, "regex native cancel latency < 100ms");
+
+            init_host(&host, regex_bt);
+            pw_py_instance_config_t rfcfg = { sizeof(rfcfg), 4096, 5000000ULL };
+            CHECK(g_new(&rfcfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "regex fuel new");
+            host.inst = inst;
+            CHECK(g_run(inst, &res) == PW_PY_STATUS_FUEL_EXHAUSTED, "regex fuel exhausted status");
+            CHECK(res.fuel_remaining < 0 && res.guest_work_used == 5000001ULL, "regex exact fuel calibration");
+            g_free(inst);
+            close_host(&host);
+            printf("[PASS] 12. built-in regex._regex full suite (grapheme, script, overlap, timeout, cancel=%.2fms, fuel=5000001)\n", dt_re);
+        } else {
+            printf("[PASS] 12. built-in regex._regex extension smoke\n");
+        }
+    }
+
     dlclose(dl);
-    printf("ALL 11 PY13 PRODUCER TESTS PASSED\n");
+    printf("ALL 12 CUMULATIVE v0.5.0 PRODUCER TESTS PASSED\n");
     return 0;
 }
