@@ -1,0 +1,1 @@
+SQLite 3.45.3 is dedicated to the Public Domain by its authors (https://www.sqlite.org/copyright.html).

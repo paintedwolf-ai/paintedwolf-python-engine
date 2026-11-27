@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	pinnedInputSHA256   = "5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8"
-	pinnedMeteredSHA256 = "774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6"
+	pinnedInputSHA256   = "850ff3aaac98b0b3126d2c3fef5a04a691bd67c79f4f31e630e3386d3eab3635"
+	pinnedMeteredSHA256 = "ef198dd5a41a11849a27598b64a400f8321a5e3427a666e89fa6af93dc7667c9"
 )
 
 func TestInstrumentWasmFuelByteEquivalence(t *testing.T) {
