@@ -14,12 +14,12 @@ OUT_DIR="$5"
 SOURCE_COMMIT="$6"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENGINE_TAG="pw-cpython-wasi-engine-v0.1.0"
+ENGINE_TAG="pw-cpython-wasi-engine-v0.5.0"
 WABT_VERSION="1.0.42"
 WABT_URL="https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42.tar.xz"
 WABT_SHA256="a76cda3c174a43097863a07fc0b0c202f770f53e21806ea2636f167d1ffb1e30"
-CPYTHON_WASM_SHA256="5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8"
-METERED_WASM_SHA256="774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6"
+CPYTHON_WASM_SHA256="fd955c1b91ef90a070564314f9bc6c98443bc731c462191ebca2e5a1ec317c8c"
+METERED_WASM_SHA256="22d6ad6719bd89707465bcf066b02b411d53ebe710cce056af3ec41cbaca257d"
 
 resolve_target_platform() {
   if [[ -n "${PW_TARGET_PLATFORM:-}" ]]; then
@@ -91,11 +91,11 @@ fi
 "$WABT_BIN" --version
 echo "[3/7] Verified WABT $WABT_VERSION ($WABT_BIN)"
 
-# 4. Translate metered.wasm -> C with wasm2c --num-outputs=12 -n pw
+# 4. Translate metered.wasm -> C with wasm2c --num-outputs=16 -n pw
 GEN_DIR="$WORK_DIR/gen"
 rm -rf "$GEN_DIR"
 mkdir -p "$GEN_DIR"
-"$WABT_BIN" --num-outputs=12 -n pw "$WORK_DIR/metered.wasm" -o "$GEN_DIR/guest.c"
+"$WABT_BIN" --num-outputs=16 -n pw "$WORK_DIR/metered.wasm" -o "$GEN_DIR/guest.c"
 cp "$WABT_SRC"/wasm2c/*.h \
    "$WABT_SRC"/wasm2c/*.inc \
    "$WABT_SRC/wasm2c/wasm-rt-impl.c" \

@@ -1,24 +1,128 @@
 {
   "schema_version": "paintedwolf.native-python-engine-lock/v1",
-  "engine_tag": "pw-cpython-wasi-engine-v0.1.0",
+  "engine_tag": "pw-cpython-wasi-engine-v0.5.0",
   "abi_version": 1,
   "cpython": {
     "version": "3.12.0",
-    "release_tag": "python/3.12.0+20231211-040d5a6",
+    "release_tag": "python/3.12.0-wasi-cumulative-source",
     "wasi_sdk": "20.0",
-    "source_url": "https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/python%2F3.12.0%2B20231211-040d5a6/python-3.12.0-wasi-sdk-20.0.tar.gz",
-    "source_sha256": "6c1cddbb69ae09e87eee2906bdc70539bff5f2969818a6f8457d4e6a6eb67d4d",
-    "wasm_sha256": "5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8"
+    "wasi_sdk_url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-20/wasi-sdk-20.0-linux.tar.gz",
+    "wasi_sdk_sha256": "7030139d495a19fbeccb9449150c2b1531e15d8fb74419872a719a7580aad0f9",
+    "source_url": "https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tar.xz",
+    "source_sha256": "795c34f44df45a0e9b9710c8c71c15c671871524cd412ca14def212e8ccb155d",
+    "wasm_sha256": "fd955c1b91ef90a070564314f9bc6c98443bc731c462191ebca2e5a1ec317c8c"
+  },
+  "build_time_tools": {
+    "wasi_sdk": "20.0",
+    "cython": "3.0.11",
+    "meson": "1.5.2",
+    "versioneer": "0.29",
+    "ninja": "1.10.1",
+    "notes": "Build-time only code generators and cross-compilation tools; not shipped in runtime guest image."
+  },
+  "native_dependencies": {
+    "zlib": {
+      "version": "1.3.1",
+      "source_url": "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.xz",
+      "source_sha256": "38ef96b8dfe510d42707d9c781877914792541133e1870841463bfa73f883e32"
+    },
+    "bzip2": {
+      "version": "1.0.8",
+      "source_url": "https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz",
+      "source_sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269"
+    },
+    "sqlite3": {
+      "version": "3.45.3",
+      "source_url": "https://www.sqlite.org/2024/sqlite-autoconf-3450300.tar.gz",
+      "source_sha256": "b2809ca53124c19c60f42bf627736eae011afdcc205bb48270a5ee9a38191531"
+    },
+    "libjpeg": {
+      "version": "9f",
+      "source_url": "https://www.ijg.org/files/jpegsrc.v9f.tar.gz",
+      "source_sha256": "04705c110cb2469caa79fb71fba3d7bf834914706e9641a4589485c1f832565b"
+    },
+    "libxml2": {
+      "version": "2.12.9",
+      "source_url": "https://download.gnome.org/sources/libxml2/2.12/libxml2-2.12.9.tar.xz",
+      "source_sha256": "59912db536ab56a3996489ea0299768c7bcffe57169f0235e7f962a91f483590",
+      "configure_flags": ["--without-python", "--without-http", "--without-ftp", "--without-threads", "--without-lzma", "--without-iconv", "--without-icu", "--without-readline", "--without-history", "--without-modules"],
+      "wasi_patches": ["xmlIO.c: return -1 instead of POSIX dup() for '-' stdin/stdout paths on WASI"]
+    },
+    "libxslt": {
+      "version": "1.1.42",
+      "source_url": "https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.42.tar.xz",
+      "source_sha256": "85ca62cac0d41fc77d3f6033da9df6fd73d20ea2fc18b0a3609ffb4110e1baeb",
+      "configure_flags": ["--without-python", "--without-crypto", "--without-plugins", "--without-debugger"]
+    }
+  },
+  "builtin_extensions": {
+    "pillow": {
+      "version": "11.1.0",
+      "source_url": "https://files.pythonhosted.org/packages/source/p/pillow/pillow-11.1.0.tar.gz",
+      "source_sha256": "368da70808b36d73b4b390a8ffac11069f8a5c85f29eff1f1b01bcf3ef5b2a20",
+      "modules": ["PIL._imaging", "_imaging"],
+      "codecs": ["zlib", "jpeg"],
+      "wasi_notes": "Patched 7 1-arg METH_NOARGS C functions (_isblock, _getextrema, _getprojection, _split, _getpalettemode, _chop_invert, _encode_to_pyfd) to 2-arg PyCFunction for wasm32 call_indirect safety (-Werror=cast-function-type); uses minimal WASI setjmp.h shim where fatal libjpeg ERREXIT fails closed via Wasm trap."
+    },
+    "lxml": {
+      "version": "5.3.0",
+      "source_url": "https://files.pythonhosted.org/packages/source/l/lxml/lxml-5.3.0.tar.gz",
+      "source_sha256": "4e109ca30d1edec1ac60cdbe341905dc3b8f55b16855e03a54aaf59e51ec8c6f",
+      "modules": ["lxml.etree", "lxml._elementpath"]
+    },
+    "regex": {
+      "version": "2024.11.6",
+      "license": "Apache-2.0",
+      "license_file": "LICENSES/REGEX-LICENSE.txt",
+      "source_url": "https://files.pythonhosted.org/packages/8e/5f/bd69653fbfb76cf8604468d3b4ec4c403197144c7bfe0e6a5fc9e02a07cb/regex-2024.11.6.tar.gz",
+      "source_sha256": "7ab159b063c52a0333c884e4679f8d7a85112ee3078fe3d9004b2dd875585519",
+      "modules": ["regex._regex", "_regex"],
+      "wasi_notes": "Patched 3 1-arg METH_NOARGS functions (match_capturesdict, match_allcaptures, match_allspans) and 2 1-arg getters (pattern_groupindex, pattern_pickled_data) to 2-arg signatures for wasm32 call_indirect safety (-Werror=cast-function-type)."
+    },
+    "numpy": {
+      "version": "1.26.4",
+      "license": "BSD-3-Clause",
+      "license_file": "LICENSES/NUMPY-LICENSE.txt",
+      "source_url": "https://files.pythonhosted.org/packages/source/n/numpy/numpy-1.26.4.tar.gz",
+      "source_sha256": "2a02aba9ed12e4ac4eb3ea9421c420301a0c6460d9830d74a9df87efa4912010",
+      "numerical_backend": "lapack_lite",
+      "modules": [
+        "numpy.core._multiarray_umath",
+        "numpy.core._multiarray_tests",
+        "numpy.linalg.lapack_lite",
+        "numpy.linalg._umath_linalg",
+        "numpy.fft._pocketfft_internal",
+        "numpy.random._common",
+        "numpy.random._bounded_integers",
+        "numpy.random.bit_generator",
+        "numpy.random.mtrand",
+        "numpy.random._generator",
+        "numpy.random._mt19937",
+        "numpy.random._pcg64",
+        "numpy.random._philox",
+        "numpy.random._sfc64"
+      ],
+      "wasi_notes": "Built with -Dblas=none -Dlapack=none -Dallow-noblas=true -Ddisable-threading=true -Ddisable-optimization=true -Ddisable-svml=true, -DNPY_NO_SMP=1 -DNPY_NO_SIGNAL=1, -lc-printscan-long-double, npy_cpu.h __wasm__ -> NPY_CPU_WASM, deduplicated lapack_lite f2c objects, and thin long->int64_t legacy bridge wrappers for mtrand NP_RANDOM_LEGACY."
+    },
+    "pandas": {
+      "version": "2.2.3",
+      "license": "BSD-3-Clause",
+      "license_file": "LICENSES/PANDAS-LICENSE.txt",
+      "source_url": "https://files.pythonhosted.org/packages/source/p/pandas/pandas-2.2.3.tar.gz",
+      "source_sha256": "4f18ba62b61d7e192368b84517265a99b4d7ee8912f8708660fb4a366cc82667",
+      "module_count": 44,
+      "wasi_notes": "Compiled against WASI NumPy 1.26.4 headers with -fno-exceptions (exception-free std::deque declaration in window/aggregations.pyx), static inline khash_python traced_* allocators, deduplicated parser helper objects, and pd_vendored_* namespacing for 7 vendored numpy datetime symbols."
+    }
   },
   "metering": {
     "algorithm_version": "pw-loop-func-i64/v1",
-    "metered_wasm_sha256": "774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6"
+    "metered_wasm_sha256": "22d6ad6719bd89707465bcf066b02b411d53ebe710cce056af3ec41cbaca257d"
   },
   "wabt": {
     "version": "1.0.42",
     "source_url": "https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42.tar.xz",
     "source_sha256": "a76cda3c174a43097863a07fc0b0c202f770f53e21806ea2636f167d1ffb1e30",
-    "generator_flags": ["wasm2c", "--num-outputs=12", "-n", "pw"],
+    "generator_flags": ["wasm2c", "--num-outputs=16", "-n", "pw"],
     "patches": []
   },
   "compile_flags": [
