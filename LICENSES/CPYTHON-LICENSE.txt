@@ -1,0 +1,10 @@
+PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2
+--------------------------------------------
+
+This native engine contains ahead-of-time compiled CPython 3.12.0/WASI
+(vmware-labs/webassembly-language-runtimes tag python/3.12.0+20231211-040d5a6,
+SHA-256 6c1cddbb69ae09e87eee2906bdc70539bff5f2969818a6f8457d4e6a6eb67d4d).
+
+Copyright (c) 2001-2023 Python Software Foundation; All Rights Reserved.
+Licensed under the Python Software Foundation License Version 2 (PSF-2.0).
+Full license text: https://docs.python.org/3.12/license.html

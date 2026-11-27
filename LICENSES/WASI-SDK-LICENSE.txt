@@ -1,0 +1,7 @@
+WASI-SDK / wasi-libc License Notice
+-----------------------------------
+
+The pinned CPython 3.12.0/WASI binary was compiled with WASI-SDK 20.0.
+wasi-libc is licensed under Apache License 2.0 with LLVM Exception, MIT, and
+BSD-2-Clause licenses.
+Full notices: https://github.com/WebAssembly/wasi-libc/blob/main/LICENSE

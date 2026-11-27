@@ -1,0 +1,33 @@
+{
+  "schema_version": "paintedwolf.native-python-engine-lock/v1",
+  "engine_tag": "pw-cpython-wasi-engine-v0.1.0",
+  "abi_version": 1,
+  "cpython": {
+    "version": "3.12.0",
+    "release_tag": "python/3.12.0+20231211-040d5a6",
+    "wasi_sdk": "20.0",
+    "source_url": "https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/python%2F3.12.0%2B20231211-040d5a6/python-3.12.0-wasi-sdk-20.0.tar.gz",
+    "source_sha256": "6c1cddbb69ae09e87eee2906bdc70539bff5f2969818a6f8457d4e6a6eb67d4d",
+    "wasm_sha256": "5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8"
+  },
+  "metering": {
+    "algorithm_version": "pw-loop-func-i64/v1",
+    "metered_wasm_sha256": "774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6"
+  },
+  "wabt": {
+    "version": "1.0.42",
+    "source_url": "https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42.tar.xz",
+    "source_sha256": "a76cda3c174a43097863a07fc0b0c202f770f53e21806ea2636f167d1ffb1e30",
+    "generator_flags": ["wasm2c", "--num-outputs=12", "-n", "pw"],
+    "patches": []
+  },
+  "compile_flags": [
+    "-O1",
+    "-g0",
+    "-fPIC",
+    "-fvisibility=hidden",
+    "-DWASM_RT_MEMCHECK_BOUNDS_CHECK=1",
+    "-DWASM_RT_STACK_DEPTH_COUNT=1",
+    "-DWASM_RT_USE_SEGUE=0"
+  ]
+}

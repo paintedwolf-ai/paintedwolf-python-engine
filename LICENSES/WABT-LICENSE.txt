@@ -1,0 +1,8 @@
+WABT (WebAssembly Binary Toolkit) 1.0.42 License Notice
+-------------------------------------------------------
+
+wasm2c and its C runtime (wasm-rt-impl.c, wasm-rt-mem-impl.c, wasm-rt.h,
+wasm-rt-impl.h) are from upstream WABT 1.0.42
+(https://github.com/WebAssembly/wabt/releases/tag/1.0.42,
+SHA-256 a76cda3c174a43097863a07fc0b0c202f770f53e21806ea2636f167d1ffb1e30),
+licensed under the Apache License, Version 2.0.

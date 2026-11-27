@@ -1,0 +1,12 @@
+{
+  global:
+    pw_py_engine_identity;
+    pw_py_engine_init;
+    pw_py_instance_new;
+    pw_py_instance_run;
+    pw_py_instance_cancel;
+    pw_py_instance_memory;
+    pw_py_instance_free;
+  local:
+    *;
+};
