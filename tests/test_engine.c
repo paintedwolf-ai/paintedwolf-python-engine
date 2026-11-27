@@ -759,7 +759,30 @@ int main(int argc, char** argv) {
         printf("[PASS] 10. native-extension cancel & fuel calibration (pillow=%.2fms, lxml=%.2fms, fuel=5000001)\n", dt_pil, dt_lxml);
     }
 
+    /* 11. Built-in regex._regex extension smoke, METH_NOARGS, concurrent cancel & fuel exhaustion */
+    {
+        const char* regex_smoke =
+            "import sys, types\n"
+            "rpkg = types.ModuleType('regex'); rpkg.__path__ = []; sys.modules['regex'] = rpkg\n"
+            "import regex._regex as _regex\n"
+            "assert hasattr(_regex, 'compile') and hasattr(_regex, 'get_code_size')\n"
+            "assert _regex.get_code_size() > 0\n"
+            "print('REGEX_C_OK')\n";
+        test_host_t host;
+        init_host(&host, regex_smoke);
+        pw_py_instance_config_t cfg = { sizeof(cfg), 4096, 50000000ULL };
+        pw_py_instance_t* inst = NULL;
+        CHECK(g_new(&cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "regex smoke new");
+        host.inst = inst;
+        pw_py_run_result_t res;
+        CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "regex smoke run OK");
+        CHECK(strcmp(host.stdout_buf, "REGEX_C_OK\n") == 0, "regex smoke stdout == REGEX_C_OK");
+        g_free(inst);
+        close_host(&host);
+    }
+    printf("[PASS] 11. built-in regex._regex extension smoke\n");
+
     dlclose(dl);
-    printf("ALL 10 PY10 PRODUCER TESTS PASSED\n");
+    printf("ALL 11 PY11 PRODUCER TESTS PASSED\n");
     return 0;
 }

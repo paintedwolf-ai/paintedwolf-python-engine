@@ -1,10 +1,10 @@
 {
   "schema_version": "paintedwolf.native-python-engine-lock/v1",
-  "engine_tag": "pw-cpython-wasi-engine-v0.2.0",
+  "engine_tag": "pw-cpython-wasi-engine-v0.3.0",
   "abi_version": 1,
   "cpython": {
     "version": "3.12.0",
-    "release_tag": "python/3.12.0-wasi-py10-source",
+    "release_tag": "python/3.12.0-wasi-py11-source",
     "wasi_sdk": "20.0",
     "wasi_sdk_url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-20/wasi-sdk-20.0-linux.tar.gz",
     "wasi_sdk_sha256": "7030139d495a19fbeccb9449150c2b1531e15d8fb74419872a719a7580aad0f9",
@@ -61,6 +61,13 @@
       "source_url": "https://files.pythonhosted.org/packages/source/l/lxml/lxml-5.3.0.tar.gz",
       "source_sha256": "4e109ca30d1edec1ac60cdbe341905dc3b8f55b16855e03a54aaf59e51ec8c6f",
       "modules": ["lxml.etree", "lxml._elementpath"]
+    },
+    "regex": {
+      "version": "2024.11.6",
+      "source_url": "https://files.pythonhosted.org/packages/8e/5f/bd69653fbfb76cf8604468d3b4ec4c403197144c7bfe0e6a5fc9e02a07cb/regex-2024.11.6.tar.gz",
+      "source_sha256": "7ab159b063c52a0333c884e4679f8d7a85112ee3078fe3d9004b2dd875585519",
+      "modules": ["regex._regex", "_regex"],
+      "wasi_notes": "Patched 3 1-arg METH_NOARGS C functions (match_capturesdict, match_allcaptures, match_allspans) to 2-arg PyCFunction for wasm32 call_indirect safety (-Werror=cast-function-type)."
     }
   },
   "metering": {

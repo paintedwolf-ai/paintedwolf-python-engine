@@ -14,7 +14,7 @@ OUT_DIR="$5"
 SOURCE_COMMIT="$6"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENGINE_TAG="pw-cpython-wasi-engine-v0.2.0"
+ENGINE_TAG="pw-cpython-wasi-engine-v0.3.0"
 WABT_VERSION="1.0.42"
 WABT_URL="https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42.tar.xz"
 WABT_SHA256="a76cda3c174a43097863a07fc0b0c202f770f53e21806ea2636f167d1ffb1e30"

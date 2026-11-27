@@ -40,6 +40,7 @@ fetch_verified libxml2-2.12.9.tar.xz          "https://download.gnome.org/source
 fetch_verified libxslt-1.1.42.tar.xz          "https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.42.tar.xz"                                           "85ca62cac0d41fc77d3f6033da9df6fd73d20ea2fc18b0a3609ffb4110e1baeb"
 fetch_verified pillow-11.1.0.tar.gz           "https://files.pythonhosted.org/packages/source/p/pillow/pillow-11.1.0.tar.gz"                                   "368da70808b36d73b4b390a8ffac11069f8a5c85f29eff1f1b01bcf3ef5b2a20"
 fetch_verified lxml-5.3.0.tar.gz              "https://files.pythonhosted.org/packages/source/l/lxml/lxml-5.3.0.tar.gz"                                        "4e109ca30d1edec1ac60cdbe341905dc3b8f55b16855e03a54aaf59e51ec8c6f"
+fetch_verified regex-2024.11.6.tar.gz         "https://files.pythonhosted.org/packages/8e/5f/bd69653fbfb76cf8604468d3b4ec4c403197144c7bfe0e6a5fc9e02a07cb/regex-2024.11.6.tar.gz" "7ab159b063c52a0333c884e4679f8d7a85112ee3078fe3d9004b2dd875585519"
 
 WASI_SDK="$CACHE_DIR/wasi-sdk-20.0"
 if [[ ! -x "$WASI_SDK/bin/clang" ]]; then
@@ -149,14 +150,16 @@ if [[ ! -f "$SYSROOT/lib/libxslt.a" ]]; then
   )
 fi
 
-# 7. CPython 3.12.0 + Pillow 11.1.0 + lxml 5.3.0
+# 7. CPython 3.12.0 + Pillow 11.1.0 + lxml 5.3.0 + regex 2024.11.6
 PY_SRC="$WORK_DIR/src/Python-3.12.0"
 PIL_SRC="$WORK_DIR/src/pillow-11.1.0"
 LXML_SRC="$WORK_DIR/src/lxml-5.3.0"
+REGEX_SRC="$WORK_DIR/src/regex-2024.11.6"
 PY_BUILD="$WORK_DIR/build-python-wasi"
 [[ -d "$PY_SRC" ]] || tar -xf "$DL/Python-3.12.0.tar.xz" -C "$WORK_DIR/src"
 [[ -d "$PIL_SRC" ]] || tar -xzf "$DL/pillow-11.1.0.tar.gz" -C "$WORK_DIR/src"
 [[ -d "$LXML_SRC" ]] || tar -xzf "$DL/lxml-5.3.0.tar.gz" -C "$WORK_DIR/src"
+[[ -d "$REGEX_SRC" ]] || tar -xzf "$DL/regex-2024.11.6.tar.gz" -C "$WORK_DIR/src"
 
 cat > "$PY_SRC/Modules/Setup.local" <<EOF
 *static*
@@ -247,20 +250,50 @@ PYEOF
 "$AR" rcs "$SYSROOT/lib/libpw_pillow_imaging.a" "$PIL_OBJ"/*.o
 "$RANLIB" "$SYSROOT/lib/libpw_pillow_imaging.a"
 
+# Build regex 2024.11.6 _regex static archive
+# Patch regex's 3 1-arg METH_NOARGS functions to 2-arg PyCFunction for Wasm call_indirect safety
+python3 - "$REGEX_SRC/regex_3/_regex.c" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+for old, new in [
+    ("match_capturesdict(MatchObject* self)", "match_capturesdict(MatchObject* self, PyObject* Py_UNUSED(ignored))"),
+    ("match_allcaptures(MatchObject* self)", "match_allcaptures(MatchObject* self, PyObject* Py_UNUSED(ignored))"),
+    ("match_allspans(MatchObject* self)", "match_allspans(MatchObject* self, PyObject* Py_UNUSED(ignored))"),
+]:
+    if new not in s:
+        assert old in s, f"Pattern not found in {p}: {old}"
+        s = s.replace(old, new, 1)
+open(p, "w").write(s)
+PYEOF
+
+REGEX_OBJ="$WORK_DIR/obj-regex"
+rm -rf "$REGEX_OBJ" && mkdir -p "$REGEX_OBJ"
+for src in _regex _regex_unicode; do
+  "$CLANG" "--sysroot=$WASI_SYSROOT" -O2 -g0 -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS \
+    -I"$SYSROOT/include" -I"$PY_BUILD" -I"$PY_SRC/Include" -I"$PY_SRC/Include/internal" \
+    -I"$REGEX_SRC/regex_3" \
+    -Werror=cast-function-type -Wno-cast-function-type-strict \
+    -c "$REGEX_SRC/regex_3/$src.c" -o "$REGEX_OBJ/$src.o" &
+done
+wait
+"$AR" rcs "$SYSROOT/lib/libpw_regex.a" "$REGEX_OBJ/_regex.o" "$REGEX_OBJ/_regex_unicode.o"
+"$RANLIB" "$SYSROOT/lib/libpw_regex.a"
+
 # Register built-in modules in Modules/config.c and link python.wasm
 (
   cd "$PY_BUILD"
   python3 - <<'PYEOF'
 s = open("Modules/config.c").read()
 if "PIL._imaging" not in s:
-    decls = "\nextern PyObject* PyInit__imaging(void);\nextern PyObject* PyInit_etree(void);\nextern PyObject* PyInit__elementpath(void);\n"
-    entries = '\n    {"PIL._imaging", PyInit__imaging},\n    {"_imaging", PyInit__imaging},\n    {"lxml.etree", PyInit_etree},\n    {"lxml._elementpath", PyInit__elementpath},\n'
+    decls = "\nextern PyObject* PyInit__imaging(void);\nextern PyObject* PyInit_etree(void);\nextern PyObject* PyInit__elementpath(void);\nextern PyObject* PyInit__regex(void);\n"
+    entries = '\n    {"PIL._imaging", PyInit__imaging},\n    {"_imaging", PyInit__imaging},\n    {"lxml.etree", PyInit_etree},\n    {"lxml._elementpath", PyInit__elementpath},\n    {"regex._regex", PyInit__regex},\n    {"_regex", PyInit__regex},\n'
     s = s.replace("/* -- ADDMODULE MARKER 1 -- */", "/* -- ADDMODULE MARKER 1 -- */" + decls, 1)
     s = s.replace("/* -- ADDMODULE MARKER 2 -- */", "/* -- ADDMODULE MARKER 2 -- */" + entries, 1)
     open("Modules/config.c", "w").write(s)
 PYEOF
   make -j"$JOBS" python.wasm \
-    SYSLIBS="$SYSROOT/lib/libpw_pillow_imaging.a $SYSROOT/lib/libpw_lxml.a $SYSROOT/lib/libjpeg.a $SYSROOT/lib/libexslt.a $SYSROOT/lib/libxslt.a $SYSROOT/lib/libxml2.a $SYSROOT/lib/libsqlite3.a $SYSROOT/lib/libbz2.a $SYSROOT/lib/libz.a -lm"
+    SYSLIBS="$SYSROOT/lib/libpw_pillow_imaging.a $SYSROOT/lib/libpw_lxml.a $SYSROOT/lib/libpw_regex.a $SYSROOT/lib/libjpeg.a $SYSROOT/lib/libexslt.a $SYSROOT/lib/libxslt.a $SYSROOT/lib/libxml2.a $SYSROOT/lib/libsqlite3.a $SYSROOT/lib/libbz2.a $SYSROOT/lib/libz.a -lm"
   rm -rf "$WORK_DIR/install"
   make install DESTDIR="$WORK_DIR/install" >/dev/null
 )
