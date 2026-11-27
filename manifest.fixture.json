@@ -1,0 +1,52 @@
+{
+  "schema_version": "paintedwolf.native-python-engine-release/v1",
+  "engine_tag": "pw-cpython-wasi-engine-v0.1.0",
+  "source_commit": "0000000000000000000000000000000000000000",
+  "abi_version": 1,
+  "abi_header_sha256": "9ec5afc672cd5d76cf184b69ae37276f2becebd8a71276d64fda7f986f1d5dbd",
+  "cpython": {
+    "version": "3.12.0",
+    "release_tag": "python/3.12.0+20231211-040d5a6",
+    "wasi_sdk": "20.0",
+    "wasm_sha256": "5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8"
+  },
+  "metering": {
+    "algorithm_version": "pw-loop-func-i64/v1",
+    "metered_wasm_sha256": "774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6"
+  },
+  "wabt": {
+    "version": "1.0.42",
+    "generator_flags": ["wasm2c", "--num-outputs=12", "-n", "pw"],
+    "patches": []
+  },
+  "import_inventory": {
+    "count": 43,
+    "sha256": "d4dca3e9def0586bdc7c43af04340073fcbd99b28a87f26f33341b30f00d623b"
+  },
+  "limits": {
+    "default_max_memory_pages": 4096,
+    "wasm_page_bytes": 65536,
+    "async_cancel_supported": true,
+    "concurrent_instances_supported": true
+  },
+  "artifacts": {
+    "darwin-arm64": {
+      "platform": "darwin-arm64",
+      "archive_name": "pw-cpython-wasi-engine-v0.1.0-darwin-arm64.tar.gz",
+      "archive_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "library_name": "libpw_cpython_wasi.dylib",
+      "library_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "codesign_hardened": true,
+      "jit_entitlements": []
+    },
+    "linux-amd64": {
+      "platform": "linux-amd64",
+      "archive_name": "pw-cpython-wasi-engine-v0.1.0-linux-amd64.tar.gz",
+      "archive_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "library_name": "libpw_cpython_wasi.so",
+      "library_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "codesign_hardened": false,
+      "jit_entitlements": []
+    }
+  }
+}
