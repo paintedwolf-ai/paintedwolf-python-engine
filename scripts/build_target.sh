@@ -14,12 +14,12 @@ OUT_DIR="$5"
 SOURCE_COMMIT="$6"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENGINE_TAG="pw-cpython-wasi-engine-v0.2.0"
+ENGINE_TAG="pw-cpython-wasi-engine-v0.4.0"
 WABT_VERSION="1.0.42"
 WABT_URL="https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42.tar.xz"
 WABT_SHA256="a76cda3c174a43097863a07fc0b0c202f770f53e21806ea2636f167d1ffb1e30"
-CPYTHON_WASM_SHA256="bea5b8f2cb633212d4be85a668ad13246dc0c1b65c29796cf5d990ec1956b052"
-METERED_WASM_SHA256="92755437dfb30aa41a5868f06d585dac55990474e07ebca53d9e5b1f009758f4"
+CPYTHON_WASM_SHA256="6b3ae6169391f6a59a52bdac5bd3198833abf7e1d9ae1e2d38c6861c3ec6a137"
+METERED_WASM_SHA256="d90c0b178b9e18130a4edb2880e5334daa04aa3da53080938c523e0dfaceff79"
 
 resolve_target_platform() {
   if [[ -n "${PW_TARGET_PLATFORM:-}" ]]; then

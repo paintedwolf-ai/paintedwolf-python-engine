@@ -1,16 +1,24 @@
 {
   "schema_version": "paintedwolf.native-python-engine-lock/v1",
-  "engine_tag": "pw-cpython-wasi-engine-v0.2.0",
+  "engine_tag": "pw-cpython-wasi-engine-v0.4.0",
   "abi_version": 1,
   "cpython": {
     "version": "3.12.0",
-    "release_tag": "python/3.12.0-wasi-py10-source",
+    "release_tag": "python/3.12.0-wasi-py13-source",
     "wasi_sdk": "20.0",
     "wasi_sdk_url": "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-20/wasi-sdk-20.0-linux.tar.gz",
     "wasi_sdk_sha256": "7030139d495a19fbeccb9449150c2b1531e15d8fb74419872a719a7580aad0f9",
     "source_url": "https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tar.xz",
     "source_sha256": "795c34f44df45a0e9b9710c8c71c15c671871524cd412ca14def212e8ccb155d",
-    "wasm_sha256": "bea5b8f2cb633212d4be85a668ad13246dc0c1b65c29796cf5d990ec1956b052"
+    "wasm_sha256": "6b3ae6169391f6a59a52bdac5bd3198833abf7e1d9ae1e2d38c6861c3ec6a137"
+  },
+  "build_time_tools": {
+    "wasi_sdk": "20.0",
+    "cython": "3.0.11",
+    "meson": "1.5.2",
+    "versioneer": "0.29",
+    "ninja": "1.10.1",
+    "notes": "Build-time only code generators and cross-compilation tools; not shipped in runtime guest image."
   },
   "native_dependencies": {
     "zlib": {
@@ -61,11 +69,45 @@
       "source_url": "https://files.pythonhosted.org/packages/source/l/lxml/lxml-5.3.0.tar.gz",
       "source_sha256": "4e109ca30d1edec1ac60cdbe341905dc3b8f55b16855e03a54aaf59e51ec8c6f",
       "modules": ["lxml.etree", "lxml._elementpath"]
+    },
+    "numpy": {
+      "version": "1.26.4",
+      "license": "BSD-3-Clause",
+      "license_file": "LICENSES/NUMPY-LICENSE.txt",
+      "source_url": "https://files.pythonhosted.org/packages/source/n/numpy/numpy-1.26.4.tar.gz",
+      "source_sha256": "2a02aba9ed12e4ac4eb3ea9421c420301a0c6460d9830d74a9df87efa4912010",
+      "numerical_backend": "lapack_lite",
+      "modules": [
+        "numpy.core._multiarray_umath",
+        "numpy.core._multiarray_tests",
+        "numpy.linalg.lapack_lite",
+        "numpy.linalg._umath_linalg",
+        "numpy.fft._pocketfft_internal",
+        "numpy.random._common",
+        "numpy.random._bounded_integers",
+        "numpy.random.bit_generator",
+        "numpy.random.mtrand",
+        "numpy.random._generator",
+        "numpy.random._mt19937",
+        "numpy.random._pcg64",
+        "numpy.random._philox",
+        "numpy.random._sfc64"
+      ],
+      "wasi_notes": "Built with -Dblas=none -Dlapack=none -Dallow-noblas=true -Ddisable-threading=true -Ddisable-optimization=true -Ddisable-svml=true, -DNPY_NO_SMP=1 -DNPY_NO_SIGNAL=1, -lc-printscan-long-double, npy_cpu.h __wasm__ -> NPY_CPU_WASM, deduplicated lapack_lite f2c objects, and thin long->int64_t legacy bridge wrappers for mtrand NP_RANDOM_LEGACY."
+    },
+    "pandas": {
+      "version": "2.2.3",
+      "license": "BSD-3-Clause",
+      "license_file": "LICENSES/PANDAS-LICENSE.txt",
+      "source_url": "https://files.pythonhosted.org/packages/source/p/pandas/pandas-2.2.3.tar.gz",
+      "source_sha256": "4f18ba62b61d7e192368b84517265a99b4d7ee8912f8708660fb4a366cc82667",
+      "module_count": 44,
+      "wasi_notes": "Compiled against WASI NumPy 1.26.4 headers with -fno-exceptions (exception-free std::deque declaration in window/aggregations.pyx), static inline khash_python traced_* allocators, deduplicated parser helper objects, and pd_vendored_* namespacing for 7 vendored numpy datetime symbols."
     }
   },
   "metering": {
     "algorithm_version": "pw-loop-func-i64/v1",
-    "metered_wasm_sha256": "92755437dfb30aa41a5868f06d585dac55990474e07ebca53d9e5b1f009758f4"
+    "metered_wasm_sha256": "d90c0b178b9e18130a4edb2880e5334daa04aa3da53080938c523e0dfaceff79"
   },
   "wabt": {
     "version": "1.0.42",

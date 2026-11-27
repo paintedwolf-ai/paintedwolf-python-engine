@@ -51,6 +51,7 @@ static fn_mem_t g_mem;
 static fn_free_t g_free;
 
 static const char* g_stdlib_dir = NULL;
+static const char* g_packages_dir = NULL;
 
 /* Minimal POSIX-backed WASI host context for real CPython execution. */
 #define MAX_WASI_FDS 128
@@ -161,8 +162,10 @@ static pw_py_wasi_action_t test_wasi_cb(
 
         case PW_PY_WASI_FD_PRESTAT_GET: {
             uint32_t fd = (uint32_t)args[0], out_p = (uint32_t)args[1];
-            if (fd != 3) { *out_ret = 8; return PW_PY_WASI_CONTINUE; } /* EBADF */
-            const char* pre = "/usr/local/lib";
+            const char* pre = NULL;
+            if (fd == 3) pre = "/usr/local/lib";
+            else if (fd == 4 && g_packages_dir != NULL && h->fds[4] >= 0) pre = "/packages";
+            else { *out_ret = 8; return PW_PY_WASI_CONTINUE; } /* EBADF */
             mem[out_p] = 0; /* preopentype::dir */
             put_u32(mem + out_p + 4, (uint32_t)strlen(pre));
             *out_ret = 0;
@@ -170,8 +173,10 @@ static pw_py_wasi_action_t test_wasi_cb(
         }
         case PW_PY_WASI_FD_PRESTAT_DIR_NAME: {
             uint32_t fd = (uint32_t)args[0], path_p = (uint32_t)args[1], path_len = (uint32_t)args[2];
-            if (fd != 3) { *out_ret = 8; return PW_PY_WASI_CONTINUE; }
-            const char* pre = "/usr/local/lib";
+            const char* pre = NULL;
+            if (fd == 3) pre = "/usr/local/lib";
+            else if (fd == 4 && g_packages_dir != NULL && h->fds[4] >= 0) pre = "/packages";
+            else { *out_ret = 8; return PW_PY_WASI_CONTINUE; }
             size_t len = strlen(pre);
             if (path_len < len) { *out_ret = 28; return PW_PY_WASI_CONTINUE; }
             memcpy(mem + path_p, pre, len);
@@ -361,7 +366,8 @@ static pw_py_wasi_action_t test_wasi_cb(
         }
         case PW_PY_WASI_FD_CLOSE: {
             uint32_t fd = (uint32_t)args[0];
-            if (fd >= 4 && fd < MAX_WASI_FDS && h->fds[fd] >= 0) {
+            uint32_t min_dyn = (g_packages_dir != NULL) ? 5 : 4;
+            if (fd >= min_dyn && fd < MAX_WASI_FDS && h->fds[fd] >= 0) {
                 close(h->fds[fd]);
                 h->fds[fd] = -1;
             }
@@ -400,6 +406,9 @@ static void init_host(test_host_t* h, const char* code) {
     memset(h, 0, sizeof(*h));
     for (int i = 0; i < MAX_WASI_FDS; i++) h->fds[i] = -1;
     h->fds[3] = open(g_stdlib_dir, O_RDONLY | O_DIRECTORY);
+    if (g_packages_dir != NULL && g_packages_dir[0] != '\0') {
+        h->fds[4] = open(g_packages_dir, O_RDONLY | O_DIRECTORY);
+    }
     h->argv[0] = "python3";
     h->argv[1] = "-I";
     h->argv[2] = "-B";
@@ -466,6 +475,7 @@ int main(int argc, char** argv) {
     }
     const char* lib_path = argv[1];
     g_stdlib_dir = argv[2];
+    g_packages_dir = getenv("PW_TEST_PACKAGES_DIR");
 
     void* dl = dlopen(lib_path, RTLD_NOW | RTLD_LOCAL);
     if (!dl) {
@@ -486,8 +496,8 @@ int main(int argc, char** argv) {
     CHECK(id != NULL, "identity non-null");
     CHECK(id->abi_version == PW_PY_ENGINE_ABI_VERSION, "abi_version == 1");
     CHECK(id->import_count == PW_PY_ENGINE_IMPORT_COUNT, "import_count == 43");
-    CHECK(strcmp(id->cpython_wasm_sha256, "bea5b8f2cb633212d4be85a668ad13246dc0c1b65c29796cf5d990ec1956b052") == 0, "cpython_wasm_sha256");
-    CHECK(strcmp(id->metered_wasm_sha256, "92755437dfb30aa41a5868f06d585dac55990474e07ebca53d9e5b1f009758f4") == 0, "metered_wasm_sha256");
+    CHECK(strcmp(id->cpython_wasm_sha256, "6b3ae6169391f6a59a52bdac5bd3198833abf7e1d9ae1e2d38c6861c3ec6a137") == 0, "cpython_wasm_sha256");
+    CHECK(strcmp(id->metered_wasm_sha256, "d90c0b178b9e18130a4edb2880e5334daa04aa3da53080938c523e0dfaceff79") == 0, "metered_wasm_sha256");
     CHECK(strcmp(id->wabt_version, "1.0.42") == 0, "wabt_version == 1.0.42");
     printf("[PASS] 1. identity handshake (tag=%s platform=%s commit=%s)\n", id->engine_tag, id->platform, id->source_commit);
 
@@ -597,17 +607,17 @@ int main(int argc, char** argv) {
         close_host(&host);
 
         init_host(&host, "try:\n  b = bytearray(32*1024*1024)\nexcept MemoryError:\n  print('OOM_CAUGHT')\n");
-        pw_py_instance_config_t cap_cfg = { sizeof(cap_cfg), 300, 50000000ULL };
+        pw_py_instance_config_t cap_cfg = { sizeof(cap_cfg), 400, 50000000ULL };
         CHECK(g_new(&cap_cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "capped mem new");
         host.inst = inst;
         pw_py_run_result_t res;
         CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "capped mem run OK");
         CHECK(strcmp(host.stdout_buf, "OOM_CAUGHT\n") == 0, "MemoryError caught cleanly");
-        CHECK(res.peak_memory_pages <= 300, "peak_memory_pages <= 300");
+        CHECK(res.peak_memory_pages <= 400, "peak_memory_pages <= 400");
         g_free(inst);
         close_host(&host);
     }
-    printf("[PASS] 7. memory ceiling enforcement (reject < initial + cap growth at 300 pages)\n");
+    printf("[PASS] 7. memory ceiling enforcement (reject < initial + cap growth at 400 pages)\n");
 
     /* 8. Concurrent multi-threaded execution (6 pthreads simultaneously) */
     {
@@ -617,7 +627,7 @@ int main(int argc, char** argv) {
         workers[2] = (worker_arg_t){ .id = 2, .code = "while True: pass", .max_pages = 4096, .fuel = 1500000ULL };
         workers[3] = (worker_arg_t){ .id = 3, .code = "print('LOOP_READY', flush=True)\nwhile True: pass\n", .max_pages = 4096, .fuel = 100000000000ULL };
         workers[4] = (worker_arg_t){ .id = 4, .code = "import sys; sys.exit(42)", .max_pages = 4096, .fuel = 50000000ULL };
-        workers[5] = (worker_arg_t){ .id = 5, .code = "try:\n  bytearray(32*1024*1024)\nexcept MemoryError:\n  print('OOM_CONC')\n", .max_pages = 300, .fuel = 50000000ULL };
+        workers[5] = (worker_arg_t){ .id = 5, .code = "try:\n  bytearray(32*1024*1024)\nexcept MemoryError:\n  print('OOM_CONC')\n", .max_pages = 400, .fuel = 50000000ULL };
 
         pthread_t tids[6];
         for (int i = 0; i < 6; i++) {
@@ -759,7 +769,123 @@ int main(int argc, char** argv) {
         printf("[PASS] 10. native-extension cancel & fuel calibration (pillow=%.2fms, lxml=%.2fms, fuel=5000001)\n", dt_pil, dt_lxml);
     }
 
+    /* 11. Built-in NumPy 1.26.4 & pandas 2.2.3 numeric extensions + kernel cancel/fuel */
+    {
+        const char* np_c_smoke =
+            "import sys, types\n"
+            "np_pkg = types.ModuleType('numpy'); np_pkg.__path__ = []; sys.modules['numpy'] = np_pkg\n"
+            "np_core = types.ModuleType('numpy.core'); np_core.__path__ = []; sys.modules['numpy.core'] = np_core\n"
+            "import numpy.core._multiarray_umath as mu\n"
+            "assert hasattr(mu, 'ndarray') and hasattr(mu, 'matmul')\n"
+            "print('NUMPY_C_OK')\n";
+        test_host_t host;
+        init_host(&host, np_c_smoke);
+        pw_py_instance_config_t cfg = { sizeof(cfg), 4096, 500000000ULL };
+        pw_py_instance_t* inst = NULL;
+        CHECK(g_new(&cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "numpy C smoke new");
+        host.inst = inst;
+        pw_py_run_result_t res;
+        CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "numpy C smoke run OK");
+        CHECK(strcmp(host.stdout_buf, "NUMPY_C_OK\n") == 0, "numpy C smoke stdout == NUMPY_C_OK");
+        g_free(inst);
+        close_host(&host);
+
+        if (g_packages_dir != NULL && g_packages_dir[0] != '\0') {
+            /* 11a. Full NumPy + pandas workflow (broadcast, slice, matmul, linalg, fft, random, typed CSV, left join, groupby+sum vs sqlite3) */
+            const char* py13_full =
+                "import sys, io, csv, sqlite3; sys.path.insert(0, '/packages')\n"
+                "import numpy as np\n"
+                "import pandas as pd\n"
+                "a = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])\n"
+                "b = np.array([10.0, 20.0, 30.0])\n"
+                "assert (a + b).tolist() == [[11.0, 22.0, 33.0], [14.0, 25.0, 36.0]]\n"
+                "assert (a + b)[:, 1:].tolist() == [[22.0, 33.0], [25.0, 36.0]]\n"
+                "m1 = np.array([[1.0, 2.0], [3.0, 4.0]]); m2 = np.array([[5.0, 6.0], [7.0, 8.0]])\n"
+                "assert (m1 @ m2).tolist() == [[19.0, 22.0], [43.0, 50.0]]\n"
+                "assert np.allclose(np.linalg.solve(m1, np.array([5.0, 11.0])), [1.0, 2.0])\n"
+                "assert np.allclose(np.fft.rfft([1.0, 0.0, -1.0, 0.0]), [0.0, 2.0, 0.0])\n"
+                "np.random.seed(42); assert np.random.poisson(5.0) >= 0\n"
+                "assert np.random.default_rng(42).poisson(5.0) >= 0\n"
+                "orders_csv = 'order_id,sku_id,qty\\n001,0010,2\\n002,0010,\\n003,0020,5\\n004,0099,3\\n005,0020,1\\n'\n"
+                "lookup_csv = 'sku_id,category,unit_price\\n0010,widget,10.0\\n0020,gadget,25.0\\n'\n"
+                "orders = pd.read_csv(io.StringIO(orders_csv), dtype={'order_id': str, 'sku_id': str, 'qty': 'Int64'})\n"
+                "lookup = pd.read_csv(io.StringIO(lookup_csv), dtype={'sku_id': str, 'category': str, 'unit_price': float})\n"
+                "assert orders['order_id'].tolist() == ['001', '002', '003', '004', '005'] and pd.isna(orders.loc[1, 'qty'])\n"
+                "merged = orders.merge(lookup, on='sku_id', how='left')\n"
+                "merged['line_total'] = merged['qty'].astype('float64') * merged['unit_price']\n"
+                "grouped = merged.groupby('category', dropna=False, as_index=False).agg(total_qty=('qty', 'sum'), total_rev=('line_total', 'sum')).sort_values('category', na_position='last').reset_index(drop=True)\n"
+                "con = sqlite3.connect(':memory:')\n"
+                "con.execute('CREATE TABLE o (oid TEXT, sid TEXT, q INT)')\n"
+                "for r in csv.DictReader(io.StringIO(orders_csv)): con.execute('INSERT INTO o VALUES (?,?,?)', (r['order_id'], r['sku_id'], int(r['qty']) if r['qty'] else None))\n"
+                "con.execute('CREATE TABLE l (sid TEXT, cat TEXT, p REAL)')\n"
+                "for r in csv.DictReader(io.StringIO(lookup_csv)): con.execute('INSERT INTO l VALUES (?,?,?)', (r['sku_id'], r['category'], float(r['unit_price'])))\n"
+                "sql_rows = con.execute('SELECT l.cat, COALESCE(SUM(o.q),0), COALESCE(SUM(o.q*l.p),0.0) FROM o LEFT JOIN l ON o.sid=l.sid GROUP BY l.cat ORDER BY l.cat IS NULL, l.cat').fetchall()\n"
+                "pd_rows = [(None if pd.isna(r.category) else r.category, int(r.total_qty), float(r.total_rev)) for r in grouped.itertuples(index=False)]\n"
+                "assert pd_rows == sql_rows == [('gadget', 6, 150.0), ('widget', 2, 20.0), (None, 3, 0.0)]\n"
+                "print('PY13_FULL_OK')\n";
+            init_host(&host, py13_full);
+            pw_py_instance_config_t full_cfg = { sizeof(full_cfg), 4096, 5000000000ULL };
+            CHECK(g_new(&full_cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "py13 full new");
+            host.inst = inst;
+            CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "py13 full run OK");
+            CHECK(strcmp(host.stdout_buf, "PY13_FULL_OK\n") == 0, "py13 full stdout == PY13_FULL_OK");
+            g_free(inst);
+            close_host(&host);
+
+            /* 11b. Concurrent host cancel inside NumPy matmul kernel */
+            const char* np_kernel =
+                "import sys; sys.path.insert(0, '/packages')\n"
+                "import numpy as np\n"
+                "A = np.ones((128, 128), dtype=np.float64)\n"
+                "B = np.ones((128, 128), dtype=np.float64)\n"
+                "print('LOOP_READY', flush=True)\n"
+                "while True:\n"
+                "  C = A @ B\n";
+            worker_arg_t wn = {0};
+            wn.code = np_kernel;
+            wn.max_pages = 4096;
+            wn.fuel = 100000000000ULL;
+            pthread_t tid;
+            CHECK(pthread_create(&tid, NULL, worker_thread, &wn) == 0, "spawn numpy cancel thread");
+            while (!atomic_load_explicit(&wn.host.ready_seen, memory_order_acquire)) {
+                struct timespec ts = {0, 1000000};
+                nanosleep(&ts, NULL);
+            }
+            struct timespec wait_ts = {0, 15000000};
+            nanosleep(&wait_ts, NULL);
+            double t0 = now_ms();
+            g_cancel(wn.inst);
+            pthread_join(tid, NULL);
+            double dt_np = now_ms() - t0;
+            CHECK(wn.res.status == PW_PY_STATUS_CANCELED, "numpy kernel cancel status == CANCELED");
+            CHECK(wn.res.fuel_remaining > 0, "numpy cancel preserves positive thread-owned fuel");
+            CHECK(dt_np < 100.0, "numpy kernel cancel latency < 100ms");
+
+            /* 11c. Exact fuel exhaustion inside NumPy matmul kernel + fresh-guest recovery */
+            init_host(&host, np_kernel);
+            pw_py_instance_config_t nfcfg = { sizeof(nfcfg), 4096, 50000000ULL };
+            CHECK(g_new(&nfcfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "numpy fuel new");
+            host.inst = inst;
+            CHECK(g_run(inst, &res) == PW_PY_STATUS_FUEL_EXHAUSTED, "numpy fuel exhausted status");
+            CHECK(res.fuel_remaining < 0 && res.guest_work_used == 50000001ULL, "numpy exact fuel calibration");
+            g_free(inst);
+            close_host(&host);
+
+            /* Subsequent fresh-guest success */
+            init_host(&host, "import sys; sys.path.insert(0, '/packages'); import numpy as np; print(int((np.arange(4) @ np.arange(4))))");
+            CHECK(g_new(&full_cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "numpy recovery new");
+            host.inst = inst;
+            CHECK(g_run(inst, &res) == PW_PY_STATUS_OK && strcmp(host.stdout_buf, "14\n") == 0, "numpy fresh-guest recovery OK");
+            g_free(inst);
+            close_host(&host);
+
+            printf("[PASS] 11. built-in NumPy 1.26.4 + pandas 2.2.3 suite (broadcast/slice/matmul/CSV/join/groupby/sqlite3, kernel cancel=%.2fms, fuel=50000001, fresh recovery)\n", dt_np);
+        } else {
+            printf("[PASS] 11. built-in NumPy _multiarray_umath extension smoke\n");
+        }
+    }
+
     dlclose(dl);
-    printf("ALL 10 PY10 PRODUCER TESTS PASSED\n");
+    printf("ALL 11 PY13 PRODUCER TESTS PASSED\n");
     return 0;
 }
