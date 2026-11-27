@@ -13,6 +13,8 @@
  *  8. Concurrent multi-threaded execution (6 pthreads simultaneously)
  */
 
+#define _DARWIN_C_SOURCE
+#define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
 #include "pw_py_engine.h"
@@ -314,6 +316,49 @@ static pw_py_wasi_action_t test_wasi_cb(
             *out_ret = 0;
             return PW_PY_WASI_CONTINUE;
         }
+        case PW_PY_WASI_FD_READDIR: {
+            uint32_t fd = (uint32_t)args[0], buf_p = (uint32_t)args[1], buf_len = (uint32_t)args[2];
+            uint64_t cookie = args[3];
+            uint32_t used_p = (uint32_t)args[4];
+            if (fd >= MAX_WASI_FDS || h->fds[fd] < 0) { *out_ret = 8; return PW_PY_WASI_CONTINUE; }
+            int dup_fd = dup(h->fds[fd]);
+            if (dup_fd < 0) { *out_ret = posix_to_wasi_errno(errno); return PW_PY_WASI_CONTINUE; }
+            DIR* d = fdopendir(dup_fd);
+            if (!d) { close(dup_fd); *out_ret = posix_to_wasi_errno(errno); return PW_PY_WASI_CONTINUE; }
+            rewinddir(d);
+            uint64_t idx = 0;
+            uint32_t used = 0;
+            struct dirent* ent;
+            while ((ent = readdir(d)) != NULL) {
+                idx++;
+                if (idx <= cookie) continue;
+                uint32_t namelen = (uint32_t)strlen(ent->d_name);
+                uint8_t hdr[24];
+                memset(hdr, 0, sizeof(hdr));
+                put_u64(hdr + 0, idx);
+                put_u64(hdr + 8, (uint64_t)ent->d_ino);
+                put_u32(hdr + 16, namelen);
+                uint8_t dtype = 0;
+                if (ent->d_type == DT_DIR) dtype = 3;
+                else if (ent->d_type == DT_REG) dtype = 4;
+                else if (ent->d_type == DT_LNK) dtype = 7;
+                hdr[20] = dtype;
+                uint32_t rem = buf_len - used;
+                uint32_t hcp = rem < 24 ? rem : 24;
+                memcpy(mem + buf_p + used, hdr, hcp);
+                used += hcp;
+                if (hcp < 24) break;
+                rem = buf_len - used;
+                uint32_t ncp = rem < namelen ? rem : namelen;
+                memcpy(mem + buf_p + used, ent->d_name, ncp);
+                used += ncp;
+                if (ncp < namelen) break;
+            }
+            closedir(d);
+            put_u32(mem + used_p, used);
+            *out_ret = 0;
+            return PW_PY_WASI_CONTINUE;
+        }
         case PW_PY_WASI_FD_CLOSE: {
             uint32_t fd = (uint32_t)args[0];
             if (fd >= 4 && fd < MAX_WASI_FDS && h->fds[fd] >= 0) {
@@ -441,8 +486,8 @@ int main(int argc, char** argv) {
     CHECK(id != NULL, "identity non-null");
     CHECK(id->abi_version == PW_PY_ENGINE_ABI_VERSION, "abi_version == 1");
     CHECK(id->import_count == PW_PY_ENGINE_IMPORT_COUNT, "import_count == 43");
-    CHECK(strcmp(id->cpython_wasm_sha256, "5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8") == 0, "cpython_wasm_sha256");
-    CHECK(strcmp(id->metered_wasm_sha256, "774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6") == 0, "metered_wasm_sha256");
+    CHECK(strcmp(id->cpython_wasm_sha256, "bea5b8f2cb633212d4be85a668ad13246dc0c1b65c29796cf5d990ec1956b052") == 0, "cpython_wasm_sha256");
+    CHECK(strcmp(id->metered_wasm_sha256, "92755437dfb30aa41a5868f06d585dac55990474e07ebca53d9e5b1f009758f4") == 0, "metered_wasm_sha256");
     CHECK(strcmp(id->wabt_version, "1.0.42") == 0, "wabt_version == 1.0.42");
     printf("[PASS] 1. identity handshake (tag=%s platform=%s commit=%s)\n", id->engine_tag, id->platform, id->source_commit);
 
@@ -592,7 +637,47 @@ int main(int argc, char** argv) {
     }
     printf("[PASS] 8. concurrent 6-thread isolation (normal, fuel, cancel, exit, memory pressure)\n");
 
+    /* 9. Built-in C extensions smoke: PIL._imaging (JPEG+PNG), lxml.etree (XPath+XXE), sqlite3 */
+    {
+        const char* ext_code =
+            "import sys, types, sqlite3\n"
+            "conn = sqlite3.connect(':memory:')\n"
+            "conn.executescript('CREATE TABLE t(v INT); INSERT INTO t VALUES (7);')\n"
+            "assert conn.execute('SELECT v FROM t').fetchone() == (7,)\n"
+            "pil_pkg = types.ModuleType('PIL'); pil_pkg.__path__ = []; sys.modules['PIL'] = pil_pkg\n"
+            "import PIL._imaging as core\n"
+            "im = core.new('RGBA', (16, 16))\n"
+            "assert im.size == (16, 16)\n"
+            "assert hasattr(core, 'jpeg_encoder') and hasattr(core, 'zip_encoder')\n"
+            "bands = im.split()\n"
+            "assert len(bands) == 4\n"
+            "assert bands[3].getextrema() == (0, 0)\n"
+            "assert len(bands[3].getprojection()) == 2\n"
+            "assert isinstance(im.isblock(), int)\n"
+            "assert im.chop_invert().size == (16, 16)\n"
+            "lxml_pkg = types.ModuleType('lxml'); lxml_pkg.__path__ = []; sys.modules['lxml'] = lxml_pkg\n"
+            "import lxml.etree as etree\n"
+            "doc = etree.fromstring(b'<r xmlns:n=\"urn:t\"><n:k>ok</n:k></r>')\n"
+            "assert doc.xpath('//n:k/text()', namespaces={'n': 'urn:t'}) == ['ok']\n"
+            "p = etree.XMLParser(resolve_entities=False, no_network=True)\n"
+            "d2 = etree.fromstring(b'<!DOCTYPE f [<!ENTITY e SYSTEM \"http://127.0.0.1:1/x\">]><r>&e;</r>', parser=p)\n"
+            "assert (d2.text or '') == ''\n"
+            "print('EXT_OK')\n";
+        test_host_t host;
+        init_host(&host, ext_code);
+        pw_py_instance_config_t cfg = { sizeof(cfg), 4096, 100000000ULL };
+        pw_py_instance_t* inst = NULL;
+        CHECK(g_new(&cfg, test_wasi_cb, &host, &inst) == PW_PY_STATUS_OK, "ext smoke new");
+        host.inst = inst;
+        pw_py_run_result_t res;
+        CHECK(g_run(inst, &res) == PW_PY_STATUS_OK, "ext smoke run OK");
+        CHECK(strcmp(host.stdout_buf, "EXT_OK\n") == 0, "ext smoke stdout == EXT_OK");
+        g_free(inst);
+        close_host(&host);
+    }
+    printf("[PASS] 9. built-in extensions smoke (PIL._imaging JPEG+PNG, lxml.etree XPath+XXE, sqlite3)\n");
+
     dlclose(dl);
-    printf("ALL 8 PY07 PRODUCER TESTS PASSED\n");
+    printf("ALL 9 PY10 PRODUCER TESTS PASSED\n");
     return 0;
 }

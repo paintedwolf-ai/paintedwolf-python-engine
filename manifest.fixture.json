@@ -1,22 +1,22 @@
 {
   "schema_version": "paintedwolf.native-python-engine-release/v1",
-  "engine_tag": "pw-cpython-wasi-engine-v0.1.0",
+  "engine_tag": "pw-cpython-wasi-engine-v0.2.0",
   "source_commit": "0000000000000000000000000000000000000000",
   "abi_version": 1,
   "abi_header_sha256": "9ec5afc672cd5d76cf184b69ae37276f2becebd8a71276d64fda7f986f1d5dbd",
   "cpython": {
     "version": "3.12.0",
-    "release_tag": "python/3.12.0+20231211-040d5a6",
+    "release_tag": "python/3.12.0-wasi-py10-source",
     "wasi_sdk": "20.0",
-    "wasm_sha256": "5ce0cbeb843e6e5abf2d50c7158002e8333c26a40fbe27a7a52e66ee48cf64a8"
+    "wasm_sha256": "bea5b8f2cb633212d4be85a668ad13246dc0c1b65c29796cf5d990ec1956b052"
   },
   "metering": {
     "algorithm_version": "pw-loop-func-i64/v1",
-    "metered_wasm_sha256": "774a08a7863c1dee1b2f21bb80fb9964f0dd5dc27bdf2294bdd8a11934e893c6"
+    "metered_wasm_sha256": "92755437dfb30aa41a5868f06d585dac55990474e07ebca53d9e5b1f009758f4"
   },
   "wabt": {
     "version": "1.0.42",
-    "generator_flags": ["wasm2c", "--num-outputs=12", "-n", "pw"],
+    "generator_flags": ["wasm2c", "--num-outputs=16", "-n", "pw"],
     "patches": []
   },
   "import_inventory": {
@@ -32,7 +32,7 @@
   "artifacts": {
     "darwin-arm64": {
       "platform": "darwin-arm64",
-      "archive_name": "pw-cpython-wasi-engine-v0.1.0-darwin-arm64.tar.gz",
+      "archive_name": "pw-cpython-wasi-engine-v0.2.0-darwin-arm64.tar.gz",
       "archive_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "library_name": "libpw_cpython_wasi.dylib",
       "library_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -41,7 +41,7 @@
     },
     "linux-amd64": {
       "platform": "linux-amd64",
-      "archive_name": "pw-cpython-wasi-engine-v0.1.0-linux-amd64.tar.gz",
+      "archive_name": "pw-cpython-wasi-engine-v0.2.0-linux-amd64.tar.gz",
       "archive_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "library_name": "libpw_cpython_wasi.so",
       "library_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
