@@ -251,9 +251,9 @@ PYEOF
 "$RANLIB" "$SYSROOT/lib/libpw_pillow_imaging.a"
 
 # Build regex 2024.11.6 _regex static archive
-# Patch regex's 3 1-arg METH_NOARGS functions to 2-arg PyCFunction for Wasm call_indirect safety
+# Patch regex's 3 1-arg METH_NOARGS functions + 2 1-arg getters for Wasm call_indirect safety
 python3 - "$REGEX_SRC/regex_3/_regex.c" <<'PYEOF'
-import sys
+import re, sys
 p = sys.argv[1]
 s = open(p).read()
 for old, new in [
@@ -264,6 +264,14 @@ for old, new in [
     if new not in s:
         assert old in s, f"Pattern not found in {p}: {old}"
         s = s.replace(old, new, 1)
+for fn in ["pattern_groupindex", "pattern_pickled_data"]:
+    s, n = re.subn(rf'(\b{fn}\s*\([^,)]+)\)', r'\1, void* Py_UNUSED(closure))', s, count=1)
+    assert n == 1, f"Failed to patch {fn}"
+s = re.sub(
+    r'\(PyCFunction\)(\w+)(,\s*METH_VARARGS\s*\|\s*METH_KEYWORDS)',
+    r'(PyCFunction)(void(*)(void))\1\2',
+    s,
+)
 open(p, "w").write(s)
 PYEOF
 
