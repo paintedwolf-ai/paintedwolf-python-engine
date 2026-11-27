@@ -13,6 +13,7 @@
  *  8. Concurrent multi-threaded execution (6 pthreads simultaneously)
  */
 
+#define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
 #include "pw_py_engine.h"
@@ -311,6 +312,49 @@ static pw_py_wasi_action_t test_wasi_cb(
             off_t res = lseek(h->fds[fd], 0, SEEK_CUR);
             if (res < 0) { *out_ret = posix_to_wasi_errno(errno); return PW_PY_WASI_CONTINUE; }
             put_u64(mem + out_p, (uint64_t)res);
+            *out_ret = 0;
+            return PW_PY_WASI_CONTINUE;
+        }
+        case PW_PY_WASI_FD_READDIR: {
+            uint32_t fd = (uint32_t)args[0], buf_p = (uint32_t)args[1], buf_len = (uint32_t)args[2];
+            uint64_t cookie = args[3];
+            uint32_t used_p = (uint32_t)args[4];
+            if (fd >= MAX_WASI_FDS || h->fds[fd] < 0) { *out_ret = 8; return PW_PY_WASI_CONTINUE; }
+            int dup_fd = dup(h->fds[fd]);
+            if (dup_fd < 0) { *out_ret = posix_to_wasi_errno(errno); return PW_PY_WASI_CONTINUE; }
+            DIR* d = fdopendir(dup_fd);
+            if (!d) { close(dup_fd); *out_ret = posix_to_wasi_errno(errno); return PW_PY_WASI_CONTINUE; }
+            rewinddir(d);
+            uint64_t idx = 0;
+            uint32_t used = 0;
+            struct dirent* ent;
+            while ((ent = readdir(d)) != NULL) {
+                idx++;
+                if (idx <= cookie) continue;
+                uint32_t namelen = (uint32_t)strlen(ent->d_name);
+                uint8_t hdr[24];
+                memset(hdr, 0, sizeof(hdr));
+                put_u64(hdr + 0, idx);
+                put_u64(hdr + 8, (uint64_t)ent->d_ino);
+                put_u32(hdr + 16, namelen);
+                uint8_t dtype = 0;
+                if (ent->d_type == DT_DIR) dtype = 3;
+                else if (ent->d_type == DT_REG) dtype = 4;
+                else if (ent->d_type == DT_LNK) dtype = 7;
+                hdr[20] = dtype;
+                uint32_t rem = buf_len - used;
+                uint32_t hcp = rem < 24 ? rem : 24;
+                memcpy(mem + buf_p + used, hdr, hcp);
+                used += hcp;
+                if (hcp < 24) break;
+                rem = buf_len - used;
+                uint32_t ncp = rem < namelen ? rem : namelen;
+                memcpy(mem + buf_p + used, ent->d_name, ncp);
+                used += ncp;
+                if (ncp < namelen) break;
+            }
+            closedir(d);
+            put_u32(mem + used_p, used);
             *out_ret = 0;
             return PW_PY_WASI_CONTINUE;
         }
