@@ -86,6 +86,7 @@ cp "$WABT_SRC"/wasm2c/*.h \
    "$WABT_SRC"/wasm2c/*.inc \
    "$WABT_SRC/wasm2c/wasm-rt-impl.c" \
    "$WABT_SRC/wasm2c/wasm-rt-mem-impl.c" \
+   "$WABT_SRC/wasm2c/wasm-rt-exceptions-impl.c" \
    "$GEN_DIR/"
 cp "$REPO_ROOT/include/pw_py_engine.h" "$GEN_DIR/"
 
@@ -108,7 +109,7 @@ COMMON_CFLAGS=(
   -I"$GEN_DIR"
 )
 
-printf '%s\n' "$GEN_DIR"/guest_*.c "$GEN_DIR"/wasm-rt-impl.c "$GEN_DIR"/wasm-rt-mem-impl.c | \
+printf '%s\n' "$GEN_DIR"/guest_*.c "$GEN_DIR"/wasm-rt-impl.c "$GEN_DIR"/wasm-rt-mem-impl.c "$GEN_DIR"/wasm-rt-exceptions-impl.c | \
   xargs -P"$JOBS" -I{} sh -c '
     src="$1"; obj_dir="$2"; shift 2
     base="$(basename "$src" .c)"
